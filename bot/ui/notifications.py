@@ -45,13 +45,13 @@ def deliver_purchase_message(chat_id, purchase_id):
     service_name = urllib.parse.unquote(item["service_name"] or "")
     expired_note = "\n\n⚠️ <b>این سرویس توسط ادمین منقضی شده است.</b>" if item["is_expired"] else ""
     text = (
-        f"✅ <b>{'تست رایگان' if item['is_test'] else 'سرویس شما آماده است'}</b>\n\n"
+        f"🎉 <b>{'تست رایگان شما آماده است' if item['is_test'] else 'سرویس شما آماده شد'}</b>\n\n"
         f"🔮 نام سرویس: <b>{esc(service_name)}</b>\n"
         f"🧩 نوع سرویس: <b>{esc(item['type_name'])}</b>\n"
-        f"🔋 حجم: <b>{item['volume_gb']}</b> گیگ\n"
-        f"⏰ مدت: <b>{item['duration_days']}</b> روز\n\n"
-        f"💝 <b>Config:</b>\n<code>{esc(cfg)}</code>\n\n"
-        f"🔋 Volume web: {esc(item['inquiry_link'] or '-')}"
+        f"📦 حجم: <b>{item['volume_gb']}</b> گیگ\n"
+        f"⏳ مدت: <b>{item['duration_days']}</b> روز\n\n"
+        f"🔐 <b>کانفیگ شما:</b>\n<code>{esc(cfg)}</code>\n\n"
+        f"🌐 لینک حجم: {esc(item['inquiry_link'] or '-') }"
         f"{expired_note}"
     )
     qr_img = qrcode.make(cfg)
@@ -62,8 +62,8 @@ def deliver_purchase_message(chat_id, purchase_id):
 
     kb = types.InlineKeyboardMarkup()
     if setting_get("manual_renewal_enabled", "1") == "1":
-        kb.add(types.InlineKeyboardButton("♻️ تمدید", callback_data=f"renew:{purchase_id}"))
-    kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="nav:main"))
+        kb.add(types.InlineKeyboardButton("♻️ تمدید سرویس", callback_data=f"renew:{purchase_id}"))
+    kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data="nav:main"))
     bot.send_photo(chat_id, bio, caption=text, parse_mode="HTML", reply_markup=kb)
 
     # also mirror to is_test=1 → test_report topic, else → purchase_log topic
@@ -77,7 +77,7 @@ def deliver_purchase_message(chat_id, purchase_id):
         )
     type_desc = item["type_description"] if item["type_description"] else ""
     if type_desc:
-        bot.send_message(chat_id, f"📌 <b>توضیحات سرویس:</b>\n\n{esc(type_desc)}", parse_mode="HTML")
+        bot.send_message(chat_id, f"📌 <b>راهنمای سرویس:</b>\n\n{esc(type_desc)}", parse_mode="HTML")
 
     # Check referral purchase reward (only for non-test purchases)
     if not item["is_test"]:

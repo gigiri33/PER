@@ -138,17 +138,17 @@ def show_swapwallet_crypto_page(call, *, amount_toman, invoice_id, result, payme
     short_id = invoice_id.replace("-", "")[:10] if invoice_id else "---"
 
     text = (
-        "💎 <b>پرداخت کریپتو (SwapWallet)</b>\n\n"
-        f"🛒 کد پیگیری: <code>{short_id}</code>\n"
-        f"💰 مبلغ: <b>{fmt_price(amount_toman)}</b> تومان"
+        "🪙 <b>پرداخت کریپتو (SwapWallet)</b>\n\n"
+        f"🧾 کد پیگیری: <code>{short_id}</code>\n"
+        f"💼 مبلغ: <b>{fmt_price(amount_toman)}</b> تومان"
         f"{usd_text}\n\n"
     )
     if wallet_address:
-        text += f"📋 آدرس کیف پول:\n<code>{esc(wallet_address)}</code>\n\n"
+        text += f"� آدرس کیف پول:\n<code>{esc(wallet_address)}</code>\n\n"
     text += (
-        "ℹ️ <i>در صورت موجود بودن آن ارز در کیف پول سواپ ولت شما، مبلغ از کیف پول کسر می‌شود؛ در غیر این صورت پرداخت به‌صورت ریالی انجام خواهد شد.</i>\n\n"
-        "❌ این فاکتور <b>۱ ساعت</b> اعتبار دارد\n"
-        "پس از واریز، دکمه «✅ بررسی پرداخت» را بزنید."
+        "ℹ️ <i>اگر ارز موردنظر در کیف پول سواپ‌ولت شما موجود باشد، مبلغ از همان کیف پول کسر می‌شود؛ در غیر این صورت پرداخت به‌صورت ریالی انجام خواهد شد.</i>\n\n"
+        "⏳ این فاکتور <b>۱ ساعت</b> اعتبار دارد\n"
+        "پس از واریز، دکمه «🔎 بررسی پرداخت» را بزنید."
     )
 
     kb = types.InlineKeyboardMarkup()
@@ -158,12 +158,12 @@ def show_swapwallet_crypto_page(call, *, amount_toman, invoice_id, result, payme
         if not url:
             continue
         if name == "SWAP_WALLET":
-            kb.add(types.InlineKeyboardButton("💳 پرداخت در SwapWallet", url=url))
+            kb.add(types.InlineKeyboardButton("� پرداخت در SwapWallet", url=url))
         elif name == "TRUST_WALLET":
             kb.add(types.InlineKeyboardButton("🔒 Trust Wallet", url=url))
         else:
             kb.add(types.InlineKeyboardButton(f"🔗 {name}", url=url))
-    kb.add(types.InlineKeyboardButton("✅ بررسی پرداخت", callback_data=verify_cb))
-    kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="nav:main"))
+    kb.add(types.InlineKeyboardButton("🔎 بررسی پرداخت", callback_data=verify_cb))
+    kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data="nav:main"))
 
     send_or_edit(call, text, kb)

@@ -70,10 +70,10 @@ def channel_lock_message(target):
         channel_url = f"https://t.me/c/{channel_id[4:]}"
     else:
         channel_url = f"https://t.me/{channel_id}"
-    kb.add(types.InlineKeyboardButton("📢 عضویت در کانال", url=channel_url))
+    kb.add(types.InlineKeyboardButton("� عضویت در کانال", url=channel_url))
     kb.add(types.InlineKeyboardButton("✅ عضو شدم", callback_data="check_channel"))
     send_or_edit(
         target,
-        "🔒 برای استفاده از ربات، ابتدا باید در کانال ما عضو شوید.\n\nپس از عضویت، روی «عضو شدم» بزنید.",
+        "🔐 برای استفاده از امکانات ربات، اول در کانال ما عضو شوید.\n\nبعد از عضویت روی «عضو شدم» بزنید.",
         kb
     )

@@ -12,22 +12,22 @@ from ..helpers import is_admin, admin_has_perm
 def kb_main(user_id):
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.row(
-        types.InlineKeyboardButton("🛒 خرید کانفیگ جدید", callback_data="buy:start"),
-        types.InlineKeyboardButton("📦 کانفیگ‌های من",    callback_data="my_configs"),
+        types.InlineKeyboardButton("�️ خرید کانفیگ جدید", callback_data="buy:start"),
+        types.InlineKeyboardButton("🗂️ کانفیگ‌های من",    callback_data="my_configs"),
     )
     if setting_get("free_test_enabled", "1") == "1":
-        kb.add(types.InlineKeyboardButton("🎁 تست رایگان", callback_data="test:start"))
+        kb.add(types.InlineKeyboardButton("🪄 تست رایگان", callback_data="test:start"))
     kb.row(
-        types.InlineKeyboardButton("👤 حساب کاربری",    callback_data="profile"),
-        types.InlineKeyboardButton("💳 شارژ کیف پول",   callback_data="wallet:charge"),
+        types.InlineKeyboardButton("🪪 حساب کاربری",    callback_data="profile"),
+        types.InlineKeyboardButton("💼 شارژ کیف پول",   callback_data="wallet:charge"),
     )
     if setting_get("referral_enabled", "1") == "1":
-        kb.add(types.InlineKeyboardButton("🎁 دعوت دوستان", callback_data="referral:menu"))
-    kb.add(types.InlineKeyboardButton("🎧 ارتباط با پشتیبانی", callback_data="support"))
+        kb.add(types.InlineKeyboardButton("🫂 دعوت دوستان", callback_data="referral:menu"))
+    kb.add(types.InlineKeyboardButton("🛟 ارتباط با پشتیبانی", callback_data="support"))
     if setting_get("agency_request_enabled", "1") == "1":
-        kb.add(types.InlineKeyboardButton("🤝 درخواست نمایندگی", callback_data="agency:request"))
+        kb.add(types.InlineKeyboardButton("💎 درخواست نمایندگی", callback_data="agency:request"))
     if is_admin(user_id):
-        kb.add(types.InlineKeyboardButton("⚙️ ورود به پنل مدیریت", callback_data="admin:panel"))
+        kb.add(types.InlineKeyboardButton("🛡️ ورود به پنل مدیریت", callback_data="admin:panel"))
     return kb
 
 

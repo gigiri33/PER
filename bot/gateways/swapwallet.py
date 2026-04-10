@@ -98,12 +98,12 @@ def show_swapwallet_page(call, *, amount_toman, invoice_id, payment_links,
     short_id = invoice_id.replace("-", "")[:10] if invoice_id else "---"
     text = (
         "🏦 <b>پرداخت آنلاین ریالی (SwapWallet)</b>\n\n"
-        f"🛒 کد پیگیری: <code>{short_id}</code>\n"
-        f"💰 مبلغ: <b>{fmt_price(amount_toman)}</b> تومان\n\n"
-        "✅ فاکتور پرداخت ایجاد شد.\n"
+        f"🧾 کد پیگیری: <code>{short_id}</code>\n"
+        f"💼 مبلغ: <b>{fmt_price(amount_toman)}</b> تومان\n\n"
+        "✅ فاکتور پرداخت با موفقیت ایجاد شد.\n"
         "از یکی از لینک‌های زیر پرداخت را انجام دهید:\n\n"
-        "❌ این فاکتور <b>۱ ساعت</b> اعتبار دارد\n"
-        "پس از پرداخت، دکمه «✅ بررسی پرداخت» را بزنید."
+        "⏳ این فاکتور <b>۱ ساعت</b> اعتبار دارد\n"
+        "بعد از پرداخت، دکمه «🔎 بررسی پرداخت» را بزنید."
     )
     kb = types.InlineKeyboardMarkup()
     for link in payment_links:
@@ -112,13 +112,13 @@ def show_swapwallet_page(call, *, amount_toman, invoice_id, payment_links,
         if not link_url:
             continue
         if link_type == "TELEGRAM_WEBAPP":
-            kb.add(types.InlineKeyboardButton("💳 پرداخت در تلگرام", url=link_url))
+            kb.add(types.InlineKeyboardButton("💠 پرداخت در تلگرام", url=link_url))
         elif link_type == "WEBSITE":
             kb.add(types.InlineKeyboardButton("🌐 پرداخت از مرورگر", url=link_url))
         else:
             kb.add(types.InlineKeyboardButton(f"🔗 {link_type}", url=link_url))
-    kb.add(types.InlineKeyboardButton("✅ بررسی پرداخت", callback_data=verify_cb))
-    kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="nav:main"))
+    kb.add(types.InlineKeyboardButton("🔎 بررسی پرداخت", callback_data=verify_cb))
+    kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data="nav:main"))
     bot.answer_callback_query(call.id)
     send_or_edit(call, text, kb)
 
@@ -127,7 +127,7 @@ def swapwallet_error_page(call, err_msg):
     """Show a descriptive error message for SwapWallet failures."""
     from ..ui.helpers import send_or_edit
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="nav:main"))
+    kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data="nav:main"))
     bot.answer_callback_query(call.id)
     send_or_edit(call,
         "❌ <b>خطا در ایجاد فاکتور پرداخت آنلاین ریالی (SwapWallet)</b>\n\n"

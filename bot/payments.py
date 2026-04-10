@@ -83,11 +83,11 @@ def show_payment_method_selection(target, uid, context_data):
     kb = types.InlineKeyboardMarkup()
     from .db import setting_get as _sg
     if is_gateway_available("card", uid) and is_card_info_complete():
-        _lbl = _sg("gw_card_display_name", "").strip() or "💳 کارت به کارت"
+        _lbl = _sg("gw_card_display_name", "").strip() or "💳 کارت‌به‌کارت"
         kb.add(types.InlineKeyboardButton(_lbl, callback_data="pm:card"))
         _gw_labels.append(("card", _lbl))
     if is_gateway_available("crypto", uid):
-        _lbl = _sg("gw_crypto_display_name", "").strip() or "💎 ارز دیجیتال"
+        _lbl = _sg("gw_crypto_display_name", "").strip() or "🪙 ارز دیجیتال"
         kb.add(types.InlineKeyboardButton(_lbl, callback_data="pm:crypto"))
         _gw_labels.append(("crypto", _lbl))
     if is_gateway_available("tetrapay", uid):
@@ -102,17 +102,17 @@ def show_payment_method_selection(target, uid, context_data):
         _lbl = _sg("gw_tronpays_rial_display_name", "").strip() or "💳 درگاه کارت به کارت (TronsPay)"
         kb.add(types.InlineKeyboardButton(_lbl, callback_data="pm:tronpays_rial"))
         _gw_labels.append(("tronpays_rial", _lbl))
-    kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="nav:main"))
+    kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data="nav:main"))
 
     user       = get_user(uid)
-    agent_note = "\n\n🤝 <i>این قیمت‌ها مخصوص همکاری شماست</i>" if user and user["is_agent"] else ""
+    agent_note = "\n\n💎 <i>این قیمت‌ها ویژه همکاری شماست</i>" if user and user["is_agent"] else ""
     _range_guide = build_gateway_range_guide(_gw_labels)
     send_or_edit(
         target,
-        f"💳 <b>انتخاب روش پرداخت</b>\n\n"
-        f"💰 مبلغ: <b>{fmt_price(amount)}</b> تومان{agent_note}\n\n"
+        f"🧾 <b>انتخاب روش پرداخت</b>\n\n"
+        f"💼 مبلغ قابل پرداخت: <b>{fmt_price(amount)}</b> تومان{agent_note}\n\n"
         + (_range_guide + "\n\n" if _range_guide else "")
-        + "روش پرداخت را انتخاب کنید:",
+        + "لطفاً روش پرداخت را انتخاب کنید:",
         kb
     )
 
@@ -134,10 +134,10 @@ def show_crypto_selection(target, amount=None):
                 price_note  = f" | ≈ {coin_amount:.4f} {symbol}"
             kb.add(types.InlineKeyboardButton(f"{coin_label}{price_note}", callback_data=f"pm:crypto:{coin_key}"))
     if not has_any:
-        send_or_edit(target, "⚠️ هیچ آدرس ارز دیجیتالی توسط ادمین ثبت نشده است.", back_button("main"))
+        send_or_edit(target, "⚠️ هنوز هیچ آدرس ارز دیجیتالی توسط ادمین ثبت نشده است.", back_button("main"))
         return
-    kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="pm:back"))
-    send_or_edit(target, "💎 <b>ارز دیجیتال</b>\n\nنوع ارز مورد نظر را انتخاب کنید:", kb)
+    kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data="pm:back"))
+    send_or_edit(target, "🪙 <b>پرداخت با ارز دیجیتال</b>\n\nنوع ارز مورد نظر را انتخاب کنید:", kb)
 
 
 def show_crypto_payment_info(target, uid, coin_key, amount):
@@ -157,13 +157,13 @@ def show_crypto_payment_info(target, uid, coin_key, amount):
             f"برای پرداخت با این ارز باید معادل <b>{coin_amount:.6f} {symbol}</b> واریز نمایید."
         )
     text = (
-        f"💎 <b>پرداخت با {label}</b>\n\n"
-        f"مبلغ: <b>{fmt_price(amount)}</b> تومان{price_text}\n\n"
-        f"📋 آدرس ولت:\n<code>{esc(addr)}</code>\n\n"
-        "پس از واریز، تصویر تراکنش یا هش آن را ارسال کنید."
+        f"🪙 <b>پرداخت با {label}</b>\n\n"
+        f"💼 مبلغ: <b>{fmt_price(amount)}</b> تومان{price_text}\n\n"
+        f"📮 آدرس ولت:\n<code>{esc(addr)}</code>\n\n"
+        "📸 پس از واریز، تصویر تراکنش یا هش آن را ارسال کنید."
     )
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="nav:main"))
+    kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data="nav:main"))
 
     if hasattr(target, "message"):
         chat_id = target.message.chat.id

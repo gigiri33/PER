@@ -626,18 +626,18 @@ def _dispatch_callback(call, uid, data):
             bot.answer_callback_query(call.id, "شما در حال حاضر نماینده هستید.", show_alert=True)
             return
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("📤 ارسال درخواست (بدون متن)", callback_data="agency:send_empty"))
-        kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="nav:main"))
+        kb.add(types.InlineKeyboardButton("� ارسال درخواست بدون متن", callback_data="agency:send_empty"))
+        kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data="nav:main"))
         state_set(uid, "agency_request_text")
         bot.answer_callback_query(call.id)
         send_or_edit(call,
-            "🤝 <b>درخواست نمایندگی</b>\n\n"
-            "لطفاً متن درخواست خود را ارسال کنید. موارد زیر را در متن ذکر کنید:\n\n"
-            "📊 میزان فروش شما در روز یا هفته\n"
-            "📢 کانال یا فروشگاهی که دارید (آدرس کانال تلگرام)\n"
-            "🎧 آیدی پشتیبانی مجموعه شما\n"
+            "💎 <b>درخواست نمایندگی</b>\n\n"
+            "لطفاً متن درخواست خود را ارسال کنید. بهتر است این موارد را در متن بنویسید:\n\n"
+            "📈 میزان فروش شما در روز یا هفته\n"
+            "📣 کانال یا فروشگاهی که دارید\n"
+            "🛟 آیدی پشتیبانی مجموعه شما\n"
             "📝 هر توضیح دیگری که لازم می‌دانید\n\n"
-            "اگر نمی‌خواهید متنی بنویسید، دکمه زیر را بزنید:", kb)
+            "اگر نمی‌خواهید متنی بنویسید، از دکمه زیر استفاده کنید:", kb)
         return
 
     if data == "agency:send_empty":
@@ -647,7 +647,7 @@ def _dispatch_callback(call, uid, data):
             bot.answer_callback_query(call.id, "شما در حال حاضر نماینده هستید.", show_alert=True)
             return
         bot.answer_callback_query(call.id)
-        send_or_edit(call, "✅ درخواست نمایندگی شما ارسال شد.\n⏳ لطفاً منتظر بررسی ادمین باشید.", back_button("main"))
+        send_or_edit(call, "✅ درخواست نمایندگی شما ثبت شد.\n⏳ لطفاً منتظر بررسی تیم پشتیبانی باشید.", back_button("main"))
         # Notify admins
         text = (
             f"🤝 <b>درخواست نمایندگی جدید</b>\n\n"
@@ -835,9 +835,9 @@ def _dispatch_callback(call, uid, data):
             price = get_effective_price(uid, p)
             title = f"{p['name']} | {fmt_vol(p['volume_gb'])} | {fmt_dur(p['duration_days'])} | {fmt_price(price)} ت"
             kb.add(types.InlineKeyboardButton(title, callback_data=f"renew:p:{purchase_id}:{p['id']}"))
-        kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data=f"mycfg:{purchase_id}"))
+        kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data=f"mycfg:{purchase_id}"))
         bot.answer_callback_query(call.id)
-        agent_note = "\n\n🤝 <i>این قیمت‌ها مخصوص همکاری شماست</i>" if user and user["is_agent"] else ""
+        agent_note = "\n\n💎 <i>این قیمت‌ها ویژه همکاری شماست</i>" if user and user["is_agent"] else ""
         if not packages:
             send_or_edit(call, "📭 در حال حاضر پکیجی برای تمدید موجود نیست.", kb)
         else:
@@ -862,13 +862,13 @@ def _dispatch_callback(call, uid, data):
                   kind="renewal", purchase_id=purchase_id)
         _gw_labels = []
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("💰 پرداخت از موجودی", callback_data=f"rpay:wallet:{purchase_id}:{package_id}"))
+        kb.add(types.InlineKeyboardButton("� پرداخت از موجودی", callback_data=f"rpay:wallet:{purchase_id}:{package_id}"))
         if is_gateway_available("card", uid) and is_card_info_complete():
-            _lbl = setting_get("gw_card_display_name", "").strip() or "💳 کارت به کارت"
+            _lbl = setting_get("gw_card_display_name", "").strip() or "💳 کارت‌به‌کارت"
             kb.add(types.InlineKeyboardButton(_lbl, callback_data=f"rpay:card:{purchase_id}:{package_id}"))
             _gw_labels.append(("card", _lbl))
         if is_gateway_available("crypto", uid):
-            _lbl = setting_get("gw_crypto_display_name", "").strip() or "💎 ارز دیجیتال"
+            _lbl = setting_get("gw_crypto_display_name", "").strip() or "🪙 ارز دیجیتال"
             kb.add(types.InlineKeyboardButton(_lbl, callback_data=f"rpay:crypto:{purchase_id}:{package_id}"))
             _gw_labels.append(("crypto", _lbl))
         if is_gateway_available("tetrapay", uid):
@@ -880,20 +880,20 @@ def _dispatch_callback(call, uid, data):
             kb.add(types.InlineKeyboardButton(_lbl, callback_data=f"rpay:swapwallet_crypto:{purchase_id}:{package_id}"))
             _gw_labels.append(("swapwallet_crypto", _lbl))
         if is_gateway_available("tronpays_rial", uid):
-            _lbl = setting_get("gw_tronpays_rial_display_name", "").strip() or "💳 درگاه کارت به کارت (TronsPay)"
+            _lbl = setting_get("gw_tronpays_rial_display_name", "").strip() or "🏦 درگاه پرداخت (TronPays)"
             kb.add(types.InlineKeyboardButton(_lbl, callback_data=f"rpay:tronpays_rial:{purchase_id}:{package_id}"))
             _gw_labels.append(("tronpays_rial", _lbl))
-        kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data=f"renew:{purchase_id}"))
+        kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data=f"renew:{purchase_id}"))
         _range_guide = build_gateway_range_guide(_gw_labels)
         text = (
-            "♻️ <b>تمدید سرویس</b>\n\n"
+            "🧾 <b>تمدید سرویس</b>\n\n"
             f"🔮 سرویس فعلی: {esc(urllib.parse.unquote(item['service_name'] or ''))}\n"
             f"📦 پکیج تمدید: {esc(package_row['name'])}\n"
-            f"🔋 حجم: {fmt_vol(package_row['volume_gb'])}\n"
-            f"⏰ مدت: {fmt_dur(package_row['duration_days'])}\n"
-            f"💰 قیمت: {fmt_price(price)} تومان\n\n"
+            f"📊 حجم: {fmt_vol(package_row['volume_gb'])}\n"
+            f"⏳ مدت: {fmt_dur(package_row['duration_days'])}\n"
+            f"💼 قیمت: {fmt_price(price)} تومان\n\n"
             + (_range_guide + "\n\n" if _range_guide else "")
-            + "روش پرداخت را انتخاب کنید:"
+            + "لطفاً روش پرداخت را انتخاب کنید:"
         )
         bot.answer_callback_query(call.id)
         send_or_edit(call, text, kb)
@@ -1271,8 +1271,8 @@ def _dispatch_callback(call, uid, data):
             if accepted != "1":
                 rules_text = setting_get("purchase_rules_text", "")
                 kb = types.InlineKeyboardMarkup()
-                kb.add(types.InlineKeyboardButton("✅ من قوانین را خواندم و پذیرفتم", callback_data="buy:accept_rules"))
-                kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="nav:main"))
+                kb.add(types.InlineKeyboardButton("✅ قوانین را خواندم و می‌پذیرم", callback_data="buy:accept_rules"))
+                kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data="nav:main"))
                 bot.answer_callback_query(call.id)
                 send_or_edit(call, f"📜 <b>قوانین خرید</b>\n\n{esc(rules_text)}", kb)
                 return
@@ -1283,9 +1283,9 @@ def _dispatch_callback(call, uid, data):
         # Check if shop is open
         if setting_get("shop_open", "1") != "1":
             kb = types.InlineKeyboardMarkup()
-            kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="nav:main"))
+            kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data="nav:main"))
             bot.answer_callback_query(call.id)
-            send_or_edit(call, "🔴 <b>فروشگاه موقتاً تعطیل است.</b>\n\nلطفاً بعداً مراجعه کنید.", kb)
+            send_or_edit(call, "🚫 <b>فروشگاه موقتاً بسته است.</b>\n\nلطفاً کمی بعد دوباره مراجعه کنید.", kb)
             return
         stock_only = setting_get("preorder_mode", "0") == "1"
         items = get_active_types()
@@ -1297,14 +1297,14 @@ def _dispatch_callback(call, uid, data):
             else:
                 packs = [p for p in get_packages(type_id=item['id']) if p['price'] > 0]
             if packs:
-                kb.add(types.InlineKeyboardButton(f"🧩 {item['name']}", callback_data=f"buy:t:{item['id']}"))
+                kb.add(types.InlineKeyboardButton(f"💠 {item['name']}", callback_data=f"buy:t:{item['id']}"))
                 has_any = True
-        kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="nav:main"))
+        kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data="nav:main"))
         bot.answer_callback_query(call.id)
         if not has_any:
             send_or_edit(call, "📭 در حال حاضر بسته‌ای برای فروش موجود نیست.", kb)
         else:
-            send_or_edit(call, "🛒 <b>خرید کانفیگ جدید</b>\n\nنوع مورد نظر را انتخاب کنید:", kb)
+            send_or_edit(call, "🛍️ <b>خرید کانفیگ جدید</b>\n\nنوع مورد نظر را انتخاب کنید:", kb)
         return
 
     if data.startswith("buy:t:"):
@@ -1321,13 +1321,13 @@ def _dispatch_callback(call, uid, data):
             stock_tag = "" if p["stock"] > 0 else " ⏳"
             title = f"{p['name']}{stock_tag} | {fmt_vol(p['volume_gb'])} | {fmt_dur(p['duration_days'])} | {fmt_price(price)} ت"
             kb.add(types.InlineKeyboardButton(title, callback_data=f"buy:p:{p['id']}"))
-        kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="buy:start"))
+        kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data="buy:start"))
         bot.answer_callback_query(call.id)
-        agent_note = "\n\n🤝 <i>این قیمت‌ها مخصوص همکاری شماست</i>" if user and user["is_agent"] else ""
+        agent_note = "\n\n💎 <i>این قیمت‌ها ویژه همکاری شماست</i>" if user and user["is_agent"] else ""
         if not packages:
             send_or_edit(call, "📭 در حال حاضر بسته‌ای برای فروش در این نوع موجود نیست.", kb)
         else:
-            send_or_edit(call, f"📦 یکی از پکیج‌ها را انتخاب کنید:{agent_note}", kb)
+            send_or_edit(call, f"🗂️ یکی از پکیج‌ها را انتخاب کنید:{agent_note}", kb)
         return
 
     if data.startswith("buy:p:"):
@@ -1342,13 +1342,13 @@ def _dispatch_callback(call, uid, data):
                   kind="config_purchase")
         _gw_labels = []
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("💰 پرداخت از موجودی", callback_data=f"pay:wallet:{package_id}"))
+        kb.add(types.InlineKeyboardButton("� پرداخت از موجودی", callback_data=f"pay:wallet:{package_id}"))
         if is_gateway_available("card", uid) and is_card_info_complete():
-            _lbl = setting_get("gw_card_display_name", "").strip() or "💳 کارت به کارت"
+            _lbl = setting_get("gw_card_display_name", "").strip() or "💳 کارت‌به‌کارت"
             kb.add(types.InlineKeyboardButton(_lbl, callback_data=f"pay:card:{package_id}"))
             _gw_labels.append(("card", _lbl))
         if is_gateway_available("crypto", uid):
-            _lbl = setting_get("gw_crypto_display_name", "").strip() or "💎 ارز دیجیتال"
+            _lbl = setting_get("gw_crypto_display_name", "").strip() or "🪙 ارز دیجیتال"
             kb.add(types.InlineKeyboardButton(_lbl, callback_data=f"pay:crypto:{package_id}"))
             _gw_labels.append(("crypto", _lbl))
         if is_gateway_available("tetrapay", uid):
@@ -1360,20 +1360,20 @@ def _dispatch_callback(call, uid, data):
             kb.add(types.InlineKeyboardButton(_lbl, callback_data=f"pay:swapwallet_crypto:{package_id}"))
             _gw_labels.append(("swapwallet_crypto", _lbl))
         if is_gateway_available("tronpays_rial", uid):
-            _lbl = setting_get("gw_tronpays_rial_display_name", "").strip() or "💳 درگاه کارت به کارت (TronsPay)"
+            _lbl = setting_get("gw_tronpays_rial_display_name", "").strip() or "🏦 درگاه پرداخت (TronPays)"
             kb.add(types.InlineKeyboardButton(_lbl, callback_data=f"pay:tronpays_rial:{package_id}"))
             _gw_labels.append(("tronpays_rial", _lbl))
-        kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data=f"buy:t:{package_row['type_id']}"))
+        kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data=f"buy:t:{package_row['type_id']}"))
         _range_guide = build_gateway_range_guide(_gw_labels)
         text = (
-            "💳 <b>انتخاب روش پرداخت</b>\n\n"
+            "🧾 <b>انتخاب روش پرداخت</b>\n\n"
             f"🧩 نوع: {esc(package_row['type_name'])}\n"
             f"📦 پکیج: {esc(package_row['name'])}\n"
-            f"🔋 حجم: {fmt_vol(package_row['volume_gb'])}\n"
-            f"⏰ مدت: {fmt_dur(package_row['duration_days'])}\n"
-            f"💰 قیمت: {fmt_price(price)} تومان\n\n"
+            f"📊 حجم: {fmt_vol(package_row['volume_gb'])}\n"
+            f"⏳ مدت: {fmt_dur(package_row['duration_days'])}\n"
+            f"💼 قیمت: {fmt_price(price)} تومان\n\n"
             + (_range_guide + "\n\n" if _range_guide else "")
-            + "روش پرداخت را انتخاب کنید:"
+            + "لطفاً روش پرداخت را انتخاب کنید:"
         )
         bot.answer_callback_query(call.id)
         send_or_edit(call, text, kb)
@@ -1771,14 +1771,14 @@ def _dispatch_callback(call, uid, data):
         for item in items:
             packs = [p for p in get_packages(type_id=item['id'], price_only=0) if p['stock'] > 0]
             if packs:
-                kb.add(types.InlineKeyboardButton(f"🎁 {item['name']}", callback_data=f"test:t:{item['id']}"))
+                kb.add(types.InlineKeyboardButton(f"🪄 {item['name']}", callback_data=f"test:t:{item['id']}"))
                 has_any = True
-        kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="nav:main"))
+        kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data="nav:main"))
         bot.answer_callback_query(call.id)
         if not has_any:
             send_or_edit(call, "📭 در حال حاضر تست رایگانی موجود نیست.", kb)
         else:
-            send_or_edit(call, "🎁 <b>تست رایگان</b>\n\nنوع مورد نظر را انتخاب کنید:", kb)
+            send_or_edit(call, "🪄 <b>تست رایگان</b>\n\nنوع مورد نظر را انتخاب کنید:", kb)
         return
 
     if data.startswith("test:t:"):
@@ -1822,7 +1822,7 @@ def _dispatch_callback(call, uid, data):
             release_reserved_config(config_id)
             bot.answer_callback_query(call.id, "⚠️ خطایی رخ داد، لطفاً دوباره تلاش کنید.", show_alert=True)
             return
-        bot.answer_callback_query(call.id, "تست رایگان ارسال شد.")
+        bot.answer_callback_query(call.id, "🎁 تست رایگان شما ارسال شد.")
         send_or_edit(call, f"✅ تست رایگان نوع <b>{esc(type_row['name'])}</b> آماده شد.", back_button("main"))
         deliver_purchase_message(call.message.chat.id, purchase_id)
         return
@@ -1831,9 +1831,9 @@ def _dispatch_callback(call, uid, data):
     if data == "wallet:charge":
         state_set(uid, "await_wallet_amount")
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="nav:main"))
+        kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data="nav:main"))
         bot.answer_callback_query(call.id)
-        send_or_edit(call, "💳 <b>شارژ کیف پول</b>\n\nمبلغ مورد نظر را به تومان وارد کنید:", kb)
+        send_or_edit(call, "💼 <b>شارژ کیف پول</b>\n\nمبلغ مورد نظر را به تومان وارد کنید:", kb)
         return
 
     if data == "wallet:charge:card":
@@ -4040,6 +4040,8 @@ def _dispatch_callback(call, uid, data):
         if not admin_has_perm(uid, "settings"):
             bot.answer_callback_query(call.id, "دسترسی مجاز نیست.", show_alert=True)
             return
+        if state_name(uid) == "admin_extract_custom_emoji_id":
+            state_clear(uid)
         kb = types.InlineKeyboardMarkup()
         kb.row(
             types.InlineKeyboardButton("🎧 پشتیبانی",           callback_data="adm:set:support"),
@@ -4047,14 +4049,15 @@ def _dispatch_callback(call, uid, data):
         )
         kb.add(types.InlineKeyboardButton("📢 کانال قفل",        callback_data="adm:set:channel"))
         kb.add(types.InlineKeyboardButton("✏️ ویرایش متن استارت", callback_data="adm:set:start_text"))
+        kb.add(types.InlineKeyboardButton("🆔 دریافت ID ایموجی پریمیوم", callback_data="adm:set:emoji_tool"))
         kb.add(types.InlineKeyboardButton("🎁 تست رایگان",      callback_data="adm:set:freetest"))
         kb.add(types.InlineKeyboardButton("📜 قوانین خرید",     callback_data="adm:set:rules"))
         kb.add(types.InlineKeyboardButton("🏪 مدیریت فروش",    callback_data="adm:set:shop"))
         kb.add(types.InlineKeyboardButton("🤖 مدیریت عملیات ربات", callback_data="adm:ops"))
         kb.add(types.InlineKeyboardButton("🏢 مدیریت گروه",    callback_data="admin:group"))
         kb.add(types.InlineKeyboardButton("📌 پیام‌های پین شده", callback_data="adm:pin"))
-        kb.add(types.InlineKeyboardButton("� مدیریت اعلان‌ها",  callback_data="adm:notif"))
-        kb.add(types.InlineKeyboardButton("�💾 بکاپ",            callback_data="admin:backup"))
+        kb.add(types.InlineKeyboardButton("🔔 مدیریت اعلان‌ها",  callback_data="adm:notif"))
+        kb.add(types.InlineKeyboardButton("💾 بکاپ",            callback_data="admin:backup"))
         kb.add(types.InlineKeyboardButton("🔙 بازگشت",        callback_data="admin:panel"))
         bot.answer_callback_query(call.id)
         send_or_edit(call, "⚙️ <b>تنظیمات</b>", kb)
@@ -4087,7 +4090,8 @@ def _dispatch_callback(call, uid, data):
             )
             kb.add(types.InlineKeyboardButton("📢 کانال قفل",        callback_data="adm:set:channel"))
             kb.add(types.InlineKeyboardButton("✏️ ویرایش متن استارت", callback_data="adm:set:start_text"))
-            kb.add(types.InlineKeyboardButton("🎁 تست رایگان",      callback_data="adm:set:freetest"))
+            kb.add(types.InlineKeyboardButton("� دریافت ID ایموجی پریمیوم", callback_data="adm:set:emoji_tool"))
+            kb.add(types.InlineKeyboardButton("�🎁 تست رایگان",      callback_data="adm:set:freetest"))
             kb.add(types.InlineKeyboardButton("📜 قوانین خرید",     callback_data="adm:set:rules"))
             kb.add(types.InlineKeyboardButton("🏷 تنظیمات فروش",    callback_data="adm:set:shop"))
             kb.add(types.InlineKeyboardButton("🏢 مدیریت گروه",    callback_data="admin:group"))
@@ -4319,6 +4323,22 @@ def _dispatch_callback(call, uid, data):
         )
         bot.answer_callback_query(call.id)
         send_or_edit(call, text, kb)
+        return
+
+    if data == "adm:set:emoji_tool":
+        if not admin_has_perm(uid, "settings"):
+            bot.answer_callback_query(call.id, "دسترسی مجاز نیست.", show_alert=True)
+            return
+        state_set(uid, "admin_extract_custom_emoji_id")
+        bot.answer_callback_query(call.id)
+        send_or_edit(
+            call,
+            "🆔 <b>دریافت ID ایموجی پریمیوم</b>\n\n"
+            "یک ایموجی Premium/Custom یا متنی که داخل آن ایموجی پریمیوم باشد بفرستید.\n"
+            "ربات شناسه عددی آن را برای شما استخراج می‌کند.\n\n"
+            "💡 می‌توانید چند ایموجی را در یک پیام بفرستید تا همه IDها نمایش داده شوند.",
+            back_button("admin:settings")
+        )
         return
 
     if data == "adm:set:support_tg":

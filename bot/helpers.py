@@ -139,5 +139,5 @@ def state_data(uid):
 # ── UI shortcut ────────────────────────────────────────────────────────────────
 def back_button(target="main"):
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data=f"nav:{target}"))
+    kb.add(types.InlineKeyboardButton("⬅️ بازگشت", callback_data=f"nav:{target}"))
     return kb

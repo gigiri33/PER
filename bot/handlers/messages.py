@@ -782,6 +782,40 @@ def universal_handler(message):
             bot.send_message(uid, "✅ توضیحات پشتیبانی ذخیره شد.", reply_markup=back_button("adm:set:support"))
             return
 
+        if sn == "admin_extract_custom_emoji_id" and is_admin(uid):
+            entities = list(message.entities or [])
+            if getattr(message, "caption_entities", None):
+                entities.extend(message.caption_entities or [])
+
+            emoji_ids = []
+            for ent in entities:
+                ent_type = getattr(ent, "type", "")
+                custom_id = getattr(ent, "custom_emoji_id", None) or getattr(ent, "document_id", None)
+                if ent_type == "custom_emoji" and custom_id:
+                    custom_id = str(custom_id)
+                    if custom_id not in emoji_ids:
+                        emoji_ids.append(custom_id)
+
+            if not emoji_ids:
+                bot.send_message(
+                    uid,
+                    "❌ در این پیام هیچ ایموجی پریمیوم/کاستوم پیدا نشد.\n\n"
+                    "لطفاً خودِ ایموجی Premium را بفرستید، نه استیکر یا ایموجی معمولی.",
+                    reply_markup=back_button("admin:settings")
+                )
+                return
+
+            ids_text = "\n".join(f"{idx}. <code>{cid}</code>" for idx, cid in enumerate(emoji_ids, 1))
+            bot.send_message(
+                uid,
+                "🆔 <b>شناسه ایموجی پریمیوم</b>\n\n"
+                f"{ids_text}\n\n"
+                "اگر خواستید، ایموجی بعدی را هم بفرستید.",
+                parse_mode="HTML",
+                reply_markup=back_button("admin:settings")
+            )
+            return
+
         # ── Referral settings inputs ───────────────────────────────────────────
         if sn == "admin_ref_banner" and is_admin(uid):
             if message.photo:
