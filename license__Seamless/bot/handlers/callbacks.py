@@ -16,7 +16,7 @@ from ..config import (
 from ..db import (
     ensure_user, get_user_licenses, get_license,
     create_license, update_license_status, extend_license, upgrade_license_plan,
-    get_all_licenses,
+    get_all_licenses, delete_license,
     get_stats, get_all_users, get_user,
     get_all_instances, get_instance, update_instance_status, delete_instance,
     get_instance_by_token,
@@ -484,9 +484,9 @@ def cb_emoji_id_tool(call):
     kb.add(types.InlineKeyboardButton("🔙 پنل مدیریت", callback_data="admin_panel"))
     text = (
         "🆔 <b>دریافت آیدی ایموجی پریمیوم</b>\n\n"
-        "یک ایموجی Premium/Custom یا متنی که داخلش ایموجی پریمیوم دارد بفرست.\n"
-        "ربات شناسه عددی آن را برایت استخراج می‌کند.\n\n"
-        "💡 اگر چند ایموجی را در یک پیام بفرستی، همه IDها برگردانده می‌شوند."
+        "یک یا چند ایموجی معمولی / Premium / Custom بفرست.\n"
+        "ربات هر ایموجی را به صورت <b>خود ایموجی → آیدی پریمیوم</b> نمایش می‌دهد.\n\n"
+        "💡 اگر موردی پریمیوم نباشد، جلوی آن <code>—</code> می‌گذارد."
     )
     try:
         bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
@@ -636,6 +636,7 @@ def cb_adm_lic_detail(call):
     kb.row(
         types.InlineKeyboardButton("⏳ تمدید", callback_data=f"adm:extend:{lic_id}"),
         types.InlineKeyboardButton("🚫 معلق", callback_data=f"adm:suspend:{lic_id}"),
+        types.InlineKeyboardButton("🗑 حذف", callback_data=f"adm:lic_delete:{lic_id}:{page}"),
     )
     kb.add(types.InlineKeyboardButton("📥 ری‌استور دیتابیس", callback_data=f"adm:lic_restore:{lic_id}:{page}"))
     kb.add(types.InlineKeyboardButton("🔙 بازگشت به لیست", callback_data=f"adm:all_lic:{page}"))
@@ -822,6 +823,74 @@ def cb_adm_suspend(call):
         except Exception:
             pass
     bot.answer_callback_query(call.id, f"🚫 لایسنس #{lic_id} معلق شد.", show_alert=True)
+    cb_adm_all_lic(call)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("adm:lic_delete:"))
+def cb_adm_lic_delete(call):
+    uid = call.from_user.id
+    if uid not in ADMIN_IDS:
+        return
+    parts = call.data.split(":")
+    lic_id = int(parts[2])
+    page = int(parts[3]) if len(parts) > 3 else 0
+    lic = get_license(lic_id)
+    if not lic:
+        bot.answer_callback_query(call.id, "❌ لایسنس پیدا نشد.", show_alert=True)
+        return
+
+    kb = types.InlineKeyboardMarkup()
+    kb.row(
+        types.InlineKeyboardButton("✅ تایید حذف", callback_data=f"adm:lic_delete_yes:{lic_id}:{page}"),
+        types.InlineKeyboardButton("🔙 بازگشت", callback_data=f"adm:lic_detail:{lic_id}:{page}"),
+    )
+    text = (
+        f"⚠️ <b>حذف لایسنس #{lic_id}</b>\n\n"
+        f"🤖 ربات: @{esc(lic.get('bot_username') or '—')}\n"
+        "با تایید شما، سرویس ربات متوقف و پوشه/رکوردهای این لایسنس حذف می‌شود.\n"
+        "این عملیات قابل بازگشت نیست."
+    )
+    try:
+        bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
+    bot.answer_callback_query(call.id)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("adm:lic_delete_yes:"))
+def cb_adm_lic_delete_yes(call):
+    uid = call.from_user.id
+    if uid not in ADMIN_IDS:
+        return
+    parts = call.data.split(":")
+    lic_id = int(parts[2])
+    page = int(parts[3]) if len(parts) > 3 else 0
+    lic = get_license(lic_id)
+    if not lic:
+        bot.answer_callback_query(call.id, "❌ لایسنس پیدا نشد.", show_alert=True)
+        return
+
+    inst = get_instance_by_token(lic["bot_token"])
+    if inst:
+        try:
+            remove_instance(inst["project"], inst["bot_token"])
+        except Exception:
+            pass
+
+    delete_license(lic_id)
+
+    try:
+        bot.send_message(
+            lic["user_id"],
+            f"🗑 لایسنس #{lic_id} (@{esc(lic.get('bot_username') or '—')}) توسط مدیریت حذف شد.\n"
+            f"برای اطلاعات بیشتر: {SUPPORT_USERNAME}",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+    bot.answer_callback_query(call.id, f"🗑 لایسنس #{lic_id} حذف شد.", show_alert=True)
+    call.data = f"adm:all_lic:{page}"
     cb_adm_all_lic(call)
 
 

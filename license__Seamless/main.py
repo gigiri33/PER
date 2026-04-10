@@ -22,7 +22,7 @@ from bot.db import (
 )
 from bot.bot_instance import bot as tg_bot
 from bot.config import ADMIN_IDS, AUTO_UPDATE_ENABLED, AUTO_UPDATE_INTERVAL
-from bot.deployer import stop_instance, repo_has_updates, update_all_instances
+from bot.deployer import stop_instance, repo_has_updates, update_all_instances, get_repo_changed_files
 
 # Import handlers (registers them with bot)
 import bot.handlers  # noqa: F401
@@ -192,17 +192,25 @@ def auto_update_worker():
                 results = update_all_instances(project=project, refresh_cache=True)
                 ok_count = sum(1 for _, ok, _ in results if ok)
                 fail_count = sum(1 for _, ok, _ in results if not ok)
+                changed_files = get_repo_changed_files(project, remote_rev, limit=8)
                 logger.info(
                     f"Auto update finished for {project}: {ok_count} success, {fail_count} failed"
                 )
 
                 if results:
+                    files_block = ""
+                    if changed_files:
+                        files_block = "\n📝 فایل‌های تغییرکرده:\n" + "\n".join(
+                            f"• {path}" for path in changed_files
+                        )
+
                     summary = (
                         f"🔄 آپدیت خودکار {project}\n"
                         f"نسخه جدید از GitHub اعمال شد.\n"
                         f"✅ موفق: {ok_count}\n"
                         f"❌ خطا: {fail_count}\n"
                         f"Commit: {(local_rev or 'none')[:7]} -> {(remote_rev or 'none')[:7]}"
+                        f"{files_block}"
                     )
                     for admin_id in ADMIN_IDS:
                         try:

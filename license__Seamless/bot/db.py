@@ -197,6 +197,14 @@ def get_all_licenses():
     return [dict(r) for r in rows]
 
 
+def delete_license(license_id):
+    conn = get_conn()
+    conn.execute("UPDATE payments SET license_id=NULL WHERE license_id=?", (license_id,))
+    conn.execute("DELETE FROM instances WHERE license_id=?", (license_id,))
+    conn.execute("DELETE FROM licenses WHERE id=?", (license_id,))
+    conn.commit()
+
+
 def update_license_status(license_id, status):
     conn = get_conn()
     conn.execute("UPDATE licenses SET status=? WHERE id=?", (status, license_id))

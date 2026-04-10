@@ -141,6 +141,24 @@ def repo_has_updates(project):
     has_update = (not local_rev) or (local_rev != remote_rev)
     return has_update, local_rev, remote_rev, ""
 
+
+def get_repo_changed_files(project, revision="", limit=12):
+    """Return a short list of files changed in the given commit/revision."""
+    cache_dir = os.path.join(REPOS_CACHE, project)
+    if not os.path.isdir(os.path.join(cache_dir, ".git")):
+        ok, _ = update_repo_cache(project)
+        if not ok:
+            return []
+
+    target_rev = (revision or "HEAD").strip() or "HEAD"
+    ok, out = _run(f"git show --pretty=\"\" --name-only {target_rev}", cwd=cache_dir, timeout=60)
+    if not ok:
+        return []
+
+    files = [ln.strip() for ln in (out or "").splitlines() if ln.strip()]
+    return files[:limit]
+
+
 def ensure_repo_cache(project):
     """Make sure local cache exists, clone if needed."""
     cache_dir = os.path.join(REPOS_CACHE, project)

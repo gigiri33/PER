@@ -4,6 +4,7 @@ Message handlers for the License Bot.
 Handles text input flows: bot registration, admin manual license, admin extend, broadcast.
 After registration, automatically deploys the bot instance on the server.
 """
+import re
 import time
 import threading
 from telebot import types
@@ -40,6 +41,67 @@ def _get_license_api_url():
     import os
     port = os.getenv("LICENSE_API_PORT", "8585")
     return f"http://127.0.0.1:{port}"
+
+
+_EMOJI_RE = re.compile(
+    r"(?:"
+    r"[\U0001F1E6-\U0001F1FF]{2}"
+    r"|"
+    r"[#*0-9]\uFE0F?\u20E3"
+    r"|"
+    r"[\u00A9\u00AE\u203C-\u3299\U0001F300-\U0001FAFF]"
+    r"(?:[\uFE0F\u200D][\u00A9\u00AE\u203C-\u3299\U0001F300-\U0001FAFF])*"
+    r")",
+    re.UNICODE,
+)
+
+
+def _extract_emoji_rows(message):
+    raw_text = (message.text or message.caption or "").strip()
+    entities = list(message.entities or [])
+    if getattr(message, "caption_entities", None):
+        entities.extend(message.caption_entities or [])
+
+    rows = []
+    seen = set()
+    custom_ranges = []
+
+    for ent in entities:
+        if getattr(ent, "type", "") != "custom_emoji":
+            continue
+        custom_id = getattr(ent, "custom_emoji_id", None) or getattr(ent, "document_id", None)
+        if not custom_id:
+            continue
+        start = int(getattr(ent, "offset", 0) or 0)
+        end = start + int(getattr(ent, "length", 0) or 0)
+        emoji_text = raw_text[start:end].strip() if raw_text else ""
+        custom_ranges.append((start, end, emoji_text, str(custom_id)))
+
+    for match in _EMOJI_RE.finditer(raw_text):
+        emoji_text = match.group(0).strip()
+        if not emoji_text:
+            continue
+        start, end = match.span()
+        custom_id = ""
+        for cstart, cend, centity_text, cid in custom_ranges:
+            if start < cend and end > cstart:
+                custom_id = cid
+                if centity_text:
+                    emoji_text = centity_text
+                break
+        key = (emoji_text, custom_id)
+        if key not in seen:
+            seen.add(key)
+            rows.append({"emoji": emoji_text, "custom_id": custom_id})
+
+    for _, _, emoji_text, cid in custom_ranges:
+        emoji_text = (emoji_text or "▫️").strip()
+        key = (emoji_text, cid)
+        if key not in seen:
+            seen.add(key)
+            rows.append({"emoji": emoji_text, "custom_id": cid})
+
+    return rows
 
 
 def _deploy_background(args):
@@ -117,36 +179,29 @@ def handle_text(message):
     step = state.get("step")
 
     if step == "adm_extract_emoji_id" and uid in ADMIN_IDS:
-        entities = list(message.entities or [])
-        if getattr(message, "caption_entities", None):
-            entities.extend(message.caption_entities or [])
-
-        emoji_ids = []
-        for ent in entities:
-            ent_type = getattr(ent, "type", "")
-            custom_id = getattr(ent, "custom_emoji_id", None) or getattr(ent, "document_id", None)
-            if ent_type == "custom_emoji" and custom_id:
-                custom_id = str(custom_id)
-                if custom_id not in emoji_ids:
-                    emoji_ids.append(custom_id)
+        emoji_rows = _extract_emoji_rows(message)
 
         kb = types.InlineKeyboardMarkup()
         kb.add(types.InlineKeyboardButton("🔙 پنل مدیریت", callback_data="admin_panel"))
 
-        if not emoji_ids:
+        if not emoji_rows:
             bot.send_message(
                 uid,
-                "❌ داخل این پیام هیچ ایموجی Premium/Custom پیدا نشد.\n\n"
-                "خودِ ایموجی پریمیوم را بفرست، نه استیکر یا ایموجی معمولی.",
+                "❌ داخل این پیام هیچ ایموجی‌ای پیدا نشد.\n\n"
+                "یک یا چند ایموجی معمولی / Premium / Custom بفرست تا کنار هرکدام، ID مرتبط هم نمایش داده شود.",
                 reply_markup=kb,
             )
             return
 
-        ids_text = "\n".join(f"{idx}. <code>{cid}</code>" for idx, cid in enumerate(emoji_ids, 1))
+        ids_text = "\n".join(
+            f"{esc(row['emoji'])} → <code>{row['custom_id'] or '—'}</code>"
+            for row in emoji_rows
+        )
         bot.send_message(
             uid,
-            "🆔 <b>شناسه ایموجی پریمیوم</b>\n\n"
+            "🆔 <b>ایموجی → ID پریمیوم</b>\n\n"
             f"{ids_text}\n\n"
+            "ℹ️ خط تیره یعنی آن مورد در این پیام نسخه Premium/Custom نداشت.\n"
             "اگر خواستی ایموجی بعدی را هم بفرست.",
             reply_markup=kb,
             parse_mode="HTML",

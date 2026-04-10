@@ -4090,16 +4090,16 @@ def _dispatch_callback(call, uid, data):
             )
             kb.add(types.InlineKeyboardButton("📢 کانال قفل",        callback_data="adm:set:channel"))
             kb.add(types.InlineKeyboardButton("✏️ ویرایش متن استارت", callback_data="adm:set:start_text"))
-            kb.add(types.InlineKeyboardButton("� دریافت ID ایموجی پریمیوم", callback_data="adm:set:emoji_tool"))
-            kb.add(types.InlineKeyboardButton("�🎁 تست رایگان",      callback_data="adm:set:freetest"))
+            kb.add(types.InlineKeyboardButton("🆔 دریافت ID ایموجی پریمیوم", callback_data="adm:set:emoji_tool"))
+            kb.add(types.InlineKeyboardButton("🎁 تست رایگان",      callback_data="adm:set:freetest"))
             kb.add(types.InlineKeyboardButton("📜 قوانین خرید",     callback_data="adm:set:rules"))
             kb.add(types.InlineKeyboardButton("🏷 تنظیمات فروش",    callback_data="adm:set:shop"))
             kb.add(types.InlineKeyboardButton("🏢 مدیریت گروه",    callback_data="admin:group"))
             kb.add(types.InlineKeyboardButton("📌 پیام‌های پین شده", callback_data="adm:pin"))
             kb.add(types.InlineKeyboardButton(f"{agency_icon} درخواست نمایندگی", callback_data="adm:set:agency_toggle"))
             kb.add(types.InlineKeyboardButton("📊 تخفیف پیش‌فرض نمایندگی", callback_data="adm:set:agency_defpct"))
-            kb.add(types.InlineKeyboardButton("� مدیریت اعلان‌ها",  callback_data="adm:notif"))
-            kb.add(types.InlineKeyboardButton("�💾 بکاپ",            callback_data="admin:backup"))
+            kb.add(types.InlineKeyboardButton("🔔 مدیریت اعلان‌ها",  callback_data="adm:notif"))
+            kb.add(types.InlineKeyboardButton("💾 بکاپ",            callback_data="admin:backup"))
             kb.add(types.InlineKeyboardButton("🔙 بازگشت",        callback_data="admin:panel"))
             send_or_edit(call, "⚙️ <b>تنظیمات</b>", kb)
         except Exception:
@@ -4334,9 +4334,9 @@ def _dispatch_callback(call, uid, data):
         send_or_edit(
             call,
             "🆔 <b>دریافت ID ایموجی پریمیوم</b>\n\n"
-            "یک ایموجی Premium/Custom یا متنی که داخل آن ایموجی پریمیوم باشد بفرستید.\n"
-            "ربات شناسه عددی آن را برای شما استخراج می‌کند.\n\n"
-            "💡 می‌توانید چند ایموجی را در یک پیام بفرستید تا همه IDها نمایش داده شوند.",
+            "یک یا چند ایموجی معمولی / Premium / Custom بفرستید.\n"
+            "ربات هر ایموجی را به صورت <b>خود ایموجی → آیدی پریمیوم</b> نمایش می‌دهد.\n\n"
+            "💡 اگر موردی پریمیوم نباشد، جلوی آن <code>—</code> می‌گذارد.",
             back_button("admin:settings")
         )
         return
