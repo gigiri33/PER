@@ -12,7 +12,7 @@ from ..config import (
     SUPPORT_USERNAME, CHANNEL_USERNAME,
     PLAN_MONTHLY_HOSTED, PLAN_PREMIUM_LICENSE, TRIAL_HOURS,
 )
-from ..db import ensure_user, get_user_licenses, get_stats, get_all_licenses
+from ..db import ensure_user, get_user_licenses, get_stats, get_all_licenses, setting_get
 
 
 def esc(text):
@@ -22,63 +22,58 @@ def esc(text):
 
 
 # ── Start Message ──────────────────────────────────────────────────────────────
-START_TEXT = """
+def get_start_text():
+    monthly = float(setting_get("price_cf_hosted", str(PLAN_MONTHLY_HOSTED)))
+    premium = float(setting_get("price_sm_premium", str(PLAN_PREMIUM_LICENSE)))
+    return """
 🌊 <b>به ربات مدیریت لایسنس Seamless خوش آمدید!</b>
 
-<b>Seamless</b> نسخه پرمیوم و حرفه‌ای ربات فروش کانفیگ است.
-<b>ConfigFlow</b> نسخه رایگان و اوپن‌سورس — برای شروع عالیه!
+━━━━━━━━━━━━━━━━━━━━
+
+⚡ <b>ConfigFlow</b> — ربات فروش کانفیگ رایگان و اوپن‌سورس
+💰 اشتراک ماهانه (سرور ما): <b>{monthly:.0f} USDT</b>
+👉 <a href="https://t.me/EmadHabibnia/28">قابلیت‌ها و نصب سریع ConfigFlow</a>
 
 ━━━━━━━━━━━━━━━━━━━━
 
-🔹 <b>ConfigFlow (رایگان):</b>
-اگر سرور خارج دارید، با یک دستور نصب کنید:
-<code>{cmd}</code>
-
-⭐️ لینک پروژه: <a href="{github}">GitHub</a>
-اگر سرور ندارید، اشتراک ماهانه بگیرید — ما روی سرور خودمون براتون ران می‌کنیم.
-💰 هزینه اشتراک ماهانه: <b>{monthly} USDT</b> (به عنوان دونیت)
-
-━━━━━━━━━━━━━━━━━━━━
-
-🔷 <b>Seamless (پرمیوم):</b>
-نسخه حرفه‌ای با امکانات ویژه.
-💎 خرید لایسنس: <b>{premium} USDT</b>
+🌊 <b>Seamless</b> — نسخه پرمیوم و حرفه‌ای
+💎 خرید لایسنس: <b>{premium:.0f} USDT</b>
 
 ━━━━━━━━━━━━━━━━━━━━
 
 📞 پشتیبانی: {support}
 📢 کانال: {channel}
 """.format(
-    cmd=CONFIGFLOW_INSTALL_CMD,
-    github=CONFIGFLOW_GITHUB,
-    monthly=PLAN_MONTHLY_HOSTED,
-    premium=PLAN_PREMIUM_LICENSE,
-    support=SUPPORT_USERNAME,
-    channel=CHANNEL_USERNAME,
-)
+        monthly=monthly,
+        premium=premium,
+        support=SUPPORT_USERNAME,
+        channel=CHANNEL_USERNAME,
+    )
+
+# backward-compat alias (for imports that reference START_TEXT directly)
+START_TEXT = get_start_text
 
 
 def main_keyboard(user_id):
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.row(
-        types.InlineKeyboardButton("� خرید اشتراک", callback_data="buy_subscription"),
-    )
-    kb.row(
-        types.InlineKeyboardButton("�💛 دونیت و حمایت از دولوپر", callback_data="donate"),
+        types.InlineKeyboardButton("💛 دونیت و حمایت از دولوپر", callback_data="donate"),
     )
     kb.row(
         types.InlineKeyboardButton("🌊 ربات نمونه Seamless", url=SEAMLESS_DEMO_BOT),
         types.InlineKeyboardButton("⚡ ربات نمونه ConfigFlow", url=CONFIGFLOW_DEMO_BOT),
     )
     kb.row(
-        types.InlineKeyboardButton("⚡ ران ربات ConfigFlow (48 ساعت رایگان)", callback_data="trial:configflow"),
+        types.InlineKeyboardButton("⚡ نصب دمو ربات ConfigFlow (معمولی) 48 ساعت رایگان", callback_data="trial:configflow"),
+        types.InlineKeyboardButton("🌊 نصب دمو ربات Seamless (پرمیوم) 24 ساعت رایگان", callback_data="trial:seamless"),
     )
     kb.row(
-        types.InlineKeyboardButton("🌊 ران ربات Seamless (24 ساعت رایگان)", callback_data="trial:seamless"),
+        types.InlineKeyboardButton("🛒 خرید اشتراک", callback_data="buy_subscription"),
     )
-    kb.row(
-        types.InlineKeyboardButton("📋 لایسنس‌های من", callback_data="my_licenses"),
-    )
+    if get_user_licenses(user_id):
+        kb.row(
+            types.InlineKeyboardButton("🤖 ربات‌های من", callback_data="my_licenses"),
+        )
     kb.row(
         types.InlineKeyboardButton("📞 پشتیبانی", url=SUPPORT_USERNAME),
     )
@@ -88,13 +83,12 @@ def main_keyboard(user_id):
         )
     return kb
 
-
 @bot.message_handler(commands=["start"])
 def cmd_start(msg):
     uid = msg.from_user.id
     ensure_user(uid, msg.from_user.username or "", msg.from_user.first_name or "")
     USER_STATE.pop(uid, None)
-    bot.send_message(uid, START_TEXT, reply_markup=main_keyboard(uid), disable_web_page_preview=True)
+    bot.send_message(uid, get_start_text(), reply_markup=main_keyboard(uid), parse_mode="HTML", disable_web_page_preview=True)
 
 
 @bot.message_handler(commands=["admin"])

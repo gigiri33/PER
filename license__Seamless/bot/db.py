@@ -211,6 +211,18 @@ def update_license_status(license_id, status):
     conn.commit()
 
 
+def update_license_fields(license_id, **kwargs):
+    """Update one or more fields of a license (bot_token, bot_username, admin_id, support_user)."""
+    allowed = {"bot_token", "bot_username", "admin_id", "support_user"}
+    updates = {k: v for k, v in kwargs.items() if k in allowed and v is not None}
+    if not updates:
+        return
+    conn = get_conn()
+    for field, value in updates.items():
+        conn.execute(f"UPDATE licenses SET {field}=? WHERE id=?", (value, license_id))
+    conn.commit()
+
+
 def extend_license(license_id, extra_hours):
     conn = get_conn()
     lic = get_license(license_id)

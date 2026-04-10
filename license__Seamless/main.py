@@ -175,6 +175,9 @@ def auto_update_worker():
     tracked_projects = ("configflow", "seamless")
     logger.info(f"Automatic instance updater enabled (interval={AUTO_UPDATE_INTERVAL}s)")
 
+    # Track the last commit we already applied so we don't re-apply or re-notify
+    _last_applied: dict = {}
+
     while True:
         try:
             for project in tracked_projects:
@@ -183,6 +186,10 @@ def auto_update_worker():
                     logger.warning(f"auto_update_worker[{project}] check failed: {err}")
                     continue
                 if not has_update:
+                    continue
+
+                # Skip if we already applied this exact remote commit
+                if remote_rev and _last_applied.get(project) == remote_rev:
                     continue
 
                 logger.info(
@@ -196,6 +203,10 @@ def auto_update_worker():
                 logger.info(
                     f"Auto update finished for {project}: {ok_count} success, {fail_count} failed"
                 )
+
+                # Mark this commit as applied so we don't notify again next cycle
+                if remote_rev:
+                    _last_applied[project] = remote_rev
 
                 if results:
                     files_block = ""

@@ -29,9 +29,10 @@ from ..db import (
 from ..deployer import (
     start_instance, stop_instance, restart_instance, remove_instance,
     update_instance, update_all_instances, instance_status as deployer_status,
-    list_all_instances,
+    list_all_instances, service_name as deployer_svc_name, instance_dir as deployer_inst_dir,
+    repo_has_updates,
 )
-from .start import main_keyboard, show_admin_panel, START_TEXT, esc
+from .start import main_keyboard, show_admin_panel, get_start_text, esc
 
 PAGE_SIZE = 10
 
@@ -75,10 +76,10 @@ def cb_main_menu(call):
     uid = call.from_user.id
     USER_STATE.pop(uid, None)
     try:
-        bot.edit_message_text(START_TEXT, uid, call.message.message_id,
-                              reply_markup=main_keyboard(uid), disable_web_page_preview=True)
+        bot.edit_message_text(get_start_text(), uid, call.message.message_id,
+                              reply_markup=main_keyboard(uid), parse_mode="HTML", disable_web_page_preview=True)
     except Exception:
-        bot.send_message(uid, START_TEXT, reply_markup=main_keyboard(uid), disable_web_page_preview=True)
+        bot.send_message(uid, get_start_text(), reply_markup=main_keyboard(uid), parse_mode="HTML", disable_web_page_preview=True)
     bot.answer_callback_query(call.id)
 
 
@@ -130,14 +131,14 @@ def cb_trial_seamless(call):
     bot.answer_callback_query(call.id)
 
 
-# ── My Licenses (paginated 2-column) ─────────────────────────────────────────
+# ── My Bots (paginated) ──────────────────────────────────────────────────────
 def _send_my_licenses(uid, msg_id, page=0):
     licenses = get_user_licenses(uid)
     total = len(licenses)
     if not licenses:
         try:
             bot.edit_message_text(
-                "📋 <b>شما هنوز لایسنسی ندارید.</b>",
+                "🤖 <b>شما هنوز ربات فعالی ندارید.</b>",
                 uid, msg_id,
                 reply_markup=types.InlineKeyboardMarkup([[types.InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]]),
                 parse_mode="HTML"
@@ -150,7 +151,7 @@ def _send_my_licenses(uid, msg_id, page=0):
     page = max(0, min(page, pages - 1))
     chunk = licenses[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
 
-    text = f"📋 <b>لایسنس‌های شما ({total}):</b>\nصفحه {page+1} از {pages}"
+    text = f"🤖 <b>ربات‌های من ({total}):</b>\nصفحه {page+1} از {pages}"
     kb = types.InlineKeyboardMarkup()
     for lic in chunk:
         bot_name = f"@{lic['bot_username']}" if lic.get('bot_username') else f"#{lic['id']}"
@@ -158,6 +159,7 @@ def _send_my_licenses(uid, msg_id, page=0):
         kb.row(
             types.InlineKeyboardButton(bot_name, callback_data=f"lic_detail:{lic['id']}:{page}"),
             types.InlineKeyboardButton(remaining, callback_data=f"lic_detail:{lic['id']}:{page}"),
+            types.InlineKeyboardButton("⚙️ تنظیمات", callback_data=f"bot_manage:{lic['id']}:{page}"),
         )
     nav = []
     if page > 0:
@@ -189,7 +191,7 @@ def cb_my_lic_pg(call):
     bot.answer_callback_query(call.id)
 
 
-# ── My License Detail ─────────────────────────────────────────────────────────
+# ── My Bot Detail ────────────────────────────────────────────────────────────
 @bot.callback_query_handler(func=lambda c: c.data.startswith("lic_detail:"))
 def cb_lic_detail(call):
     uid = call.from_user.id
@@ -198,27 +200,263 @@ def cb_lic_detail(call):
     page = int(parts[2]) if len(parts) > 2 else 0
     lic = get_license(lic_id)
     if not lic or lic["user_id"] != uid:
-        bot.answer_callback_query(call.id, "❌ لایسنس پیدا نشد.", show_alert=True)
+        bot.answer_callback_query(call.id, "❌ ربات پیدا نشد.", show_alert=True)
         return
+    inst = get_instance_by_token(lic['bot_token'])
+    live_st = deployer_status(inst["project"], inst["bot_token"]) if inst else "—"
     text = (
-        f"🔍 <b>جزئیات لایسنس #{lic['id']}</b>\n\n"
-        f"🤖 ربات: @{esc(lic.get('bot_username') or '—')}\n"
+        f"🤖 <b>اطلاعات ربات @{esc(lic.get('bot_username') or '—')}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📌 پلن: {_plan_label(lic['plan'])}\n"
-        f"📊 وضعیت: {_status_label(lic['status'])}\n"
-        f"👤 ادمین: <code>{esc(lic.get('admin_id') or '—')}</code>\n"
+        f"📊 وضعیت اشتراک: {_status_label(lic['status'])}\n"
+        f"🖥 وضعیت سرور: <b>{live_st}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 آیدی ادمین: <code>{esc(lic.get('admin_id') or '—')}</code>\n"
         f"📞 پشتیبانی: @{esc(lic.get('support_user') or '—')}\n"
         f"🔑 توکن: <code>{esc(lic.get('bot_token') or '—')}</code>\n"
-        f"📅 ساخت: {_fmt_time(lic['created_at'])}\n"
-        f"⏳ انقضا: {_fmt_time(lic['expires_at'])}\n"
-        f"⏱ باقیمانده: {_remaining(lic['expires_at'])}"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📅 تاریخ شروع: {_fmt_time(lic['created_at'])}\n"
+        f"⏳ تاریخ انقضا: {_fmt_time(lic['expires_at'])}\n"
+        f"⏱️ باقیمانده: {_remaining(lic['expires_at'])}"
     )
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("🔙 لایسنس‌ها", callback_data=f"my_lic_pg:{page}"))
+    kb.add(types.InlineKeyboardButton("⚙️ مدیریت ربات", callback_data=f"bot_manage:{lic_id}:{page}"))
+    kb.add(types.InlineKeyboardButton("🔙 ربات‌های من", callback_data=f"my_lic_pg:{page}"))
     kb.add(types.InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu"))
     try:
         bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
     except Exception:
         bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
+    bot.answer_callback_query(call.id)
+
+
+# ── User Bot Management Menu ──────────────────────────────────────────────────
+def _bot_manage_kb(lic_id, page, is_admin=False):
+    """Build the management keyboard for a bot (shared between user and admin views)."""
+    kb = types.InlineKeyboardMarkup()
+    kb.row(
+        types.InlineKeyboardButton("▶️ روشن",    callback_data=f"bm:start:{lic_id}:{page}"),
+        types.InlineKeyboardButton("⏹ خاموش",  callback_data=f"bm:stop:{lic_id}:{page}"),
+        types.InlineKeyboardButton("🔁 ریستارت", callback_data=f"bm:restart:{lic_id}:{page}"),
+    )
+    kb.row(
+        types.InlineKeyboardButton("🔄 آپدیت",          callback_data=f"bm:update:{lic_id}:{page}"),
+        types.InlineKeyboardButton("📋 لاگ‌های ربات",   callback_data=f"bm:logs:{lic_id}:{page}"),
+    )
+    kb.row(
+        types.InlineKeyboardButton("✏️ تغییر اطلاعات", callback_data=f"bm:edit:{lic_id}:{page}"),
+        types.InlineKeyboardButton("🔃 اتوآپدیت",       callback_data=f"bm:autoupd:{lic_id}:{page}"),
+    )
+    if is_admin:
+        kb.row(
+            types.InlineKeyboardButton("⏳ تمدید",  callback_data=f"adm:extend:{lic_id}"),
+            types.InlineKeyboardButton("🚫 معلق",   callback_data=f"adm:suspend:{lic_id}"),
+            types.InlineKeyboardButton("🗑 حذف",    callback_data=f"adm:lic_delete:{lic_id}:{page}"),
+        )
+        kb.add(types.InlineKeyboardButton("📥 ری‌استور دیتابیس", callback_data=f"adm:lic_restore:{lic_id}:{page}"))
+        kb.add(types.InlineKeyboardButton("🔙 بازگشت به لیست", callback_data=f"adm:all_lic:{page}"))
+    else:
+        kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data=f"lic_detail:{lic_id}:{page}"))
+    return kb
+
+
+def _bot_manage_text(lic, inst=None):
+    live_st = deployer_status(inst["project"], inst["bot_token"]) if inst else "—"
+    return (
+        f"⚙️ <b>مدیریت ربات @{esc(lic.get('bot_username') or '—')}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📌 پلن: {_plan_label(lic['plan'])}  |  📊 {_status_label(lic['status'])}\n"
+        f"🖥 وضعیت سرور: <b>{live_st}</b>\n"
+        f"⏱️ باقیمانده: {_remaining(lic['expires_at'])}"
+    )
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("bot_manage:"))
+def cb_bot_manage(call):
+    uid = call.from_user.id
+    parts = call.data.split(":")
+    lic_id = int(parts[1])
+    page = int(parts[2]) if len(parts) > 2 else 0
+    lic = get_license(lic_id)
+    is_admin = uid in ADMIN_IDS
+    if not lic or (lic["user_id"] != uid and not is_admin):
+        bot.answer_callback_query(call.id, "❌ دسترسی ندارید.", show_alert=True)
+        return
+    inst = get_instance_by_token(lic['bot_token'])
+    text = _bot_manage_text(lic, inst)
+    kb = _bot_manage_kb(lic_id, page, is_admin=is_admin)
+    try:
+        bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
+    bot.answer_callback_query(call.id)
+
+
+# ── Bot Management Actions (start/stop/restart/update/logs/autoupdate) ─────────
+def _bm_get_lic_inst(call):
+    """Parse call data and return (uid, lic_id, page, lic, inst) or None on error."""
+    uid = call.from_user.id
+    parts = call.data.split(":")
+    lic_id = int(parts[2])
+    page = int(parts[3]) if len(parts) > 3 else 0
+    lic = get_license(lic_id)
+    is_admin = uid in ADMIN_IDS
+    if not lic or (lic["user_id"] != uid and not is_admin):
+        bot.answer_callback_query(call.id, "❌ دسترسی ندارید.", show_alert=True)
+        return None
+    inst = get_instance_by_token(lic['bot_token'])
+    if not inst:
+        bot.answer_callback_query(call.id, "❌ نمونه‌ای برای این ربات پیدا نشد.", show_alert=True)
+        return None
+    return uid, lic_id, page, lic, inst, is_admin
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("bm:start:"))
+def cb_bm_start(call):
+    r = _bm_get_lic_inst(call)
+    if not r: return
+    uid, lic_id, page, lic, inst, is_admin = r
+    ok, _ = start_instance(inst["project"], inst["bot_token"])
+    if ok: update_instance_status(inst["id"], "running")
+    bot.answer_callback_query(call.id, "▶️ روشن شد." if ok else "❌ خطا در روشن کردن", show_alert=not ok)
+    call.data = f"bot_manage:{lic_id}:{page}"
+    cb_bot_manage(call)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("bm:stop:"))
+def cb_bm_stop(call):
+    r = _bm_get_lic_inst(call)
+    if not r: return
+    uid, lic_id, page, lic, inst, is_admin = r
+    ok, _ = stop_instance(inst["project"], inst["bot_token"])
+    if ok: update_instance_status(inst["id"], "stopped")
+    bot.answer_callback_query(call.id, "⏹ خاموش شد." if ok else "❌ خطا در خاموش کردن", show_alert=not ok)
+    call.data = f"bot_manage:{lic_id}:{page}"
+    cb_bot_manage(call)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("bm:restart:"))
+def cb_bm_restart(call):
+    r = _bm_get_lic_inst(call)
+    if not r: return
+    uid, lic_id, page, lic, inst, is_admin = r
+    ok, _ = restart_instance(inst["project"], inst["bot_token"])
+    if ok: update_instance_status(inst["id"], "running")
+    bot.answer_callback_query(call.id, "🔁 ریستارت شد." if ok else "❌ خطا", show_alert=not ok)
+    call.data = f"bot_manage:{lic_id}:{page}"
+    cb_bot_manage(call)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("bm:update:"))
+def cb_bm_update(call):
+    r = _bm_get_lic_inst(call)
+    if not r: return
+    uid, lic_id, page, lic, inst, is_admin = r
+    bot.answer_callback_query(call.id, "🔄 در حال آپدیت...", show_alert=False)
+    def _do():
+        ok, msg = update_instance(inst["project"], inst["bot_token"])
+        if ok: update_instance_status(inst["id"], "running")
+        try:
+            bot.send_message(uid,
+                f"{'✅' if ok else '❌'} آپدیت ربات @{esc(lic.get('bot_username',''))}:\n{msg[:200]}",
+                parse_mode="HTML")
+        except Exception:
+            pass
+    threading.Thread(target=_do, daemon=True).start()
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("bm:logs:"))
+def cb_bm_logs(call):
+    r = _bm_get_lic_inst(call)
+    if not r: return
+    uid, lic_id, page, lic, inst, is_admin = r
+    bot.answer_callback_query(call.id)
+    from ..deployer import _run, service_name as _svc
+    svc = _svc(inst["project"], inst["bot_token"])
+    ok, out = _run(f"journalctl -u {svc} -n 50 --no-pager 2>&1 | tail -c 3500")
+    log_text = (out or "لاگی یافت نشد.").strip()[-3500:]
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data=f"bot_manage:{lic_id}:{page}"))
+    bot.send_message(uid, f"📋 <b>لاگ‌های ربات @{esc(lic.get('bot_username',''))}:</b>\n\n<pre>{esc(log_text)}</pre>",
+                     reply_markup=kb, parse_mode="HTML")
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("bm:autoupd:"))
+def cb_bm_autoupd(call):
+    r = _bm_get_lic_inst(call)
+    if not r: return
+    uid, lic_id, page, lic, inst, is_admin = r
+    bot.answer_callback_query(call.id)
+    from ..deployer import _run, service_name as _svc
+    svc = _svc(inst["project"], inst["bot_token"])
+    timer_svc = f"{svc}-autoupdate.timer"
+    ok_check, status_out = _run(f"systemctl is-active {timer_svc}")
+    is_active = (status_out.strip() == "active")
+    if is_active:
+        _run(f"systemctl stop {timer_svc} ; systemctl disable {timer_svc}")
+        msg = "🔕 اتوآپدیت خاموش شد."
+    else:
+        _run(f"systemctl enable {timer_svc} ; systemctl start {timer_svc}")
+        msg = "🔔 اتوآپدیت روشن شد."
+    bot.send_message(uid, msg)
+    call.data = f"bot_manage:{lic_id}:{page}"
+    cb_bot_manage(call)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("bm:edit:"))
+def cb_bm_edit(call):
+    uid = call.from_user.id
+    parts = call.data.split(":")
+    lic_id = int(parts[2])
+    page = int(parts[3]) if len(parts) > 3 else 0
+    lic = get_license(lic_id)
+    is_admin = uid in ADMIN_IDS
+    if not lic or (lic["user_id"] != uid and not is_admin):
+        bot.answer_callback_query(call.id, "❌ دسترسی ندارید.", show_alert=True)
+        return
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("🔑 تغییر توکن",          callback_data=f"bm:edit_field:token:{lic_id}:{page}"))
+    kb.add(types.InlineKeyboardButton("🆔 تغییر آیدی ادمین",    callback_data=f"bm:edit_field:admin_id:{lic_id}:{page}"))
+    kb.add(types.InlineKeyboardButton("🤖 تغییر یوزرنیم ربات", callback_data=f"bm:edit_field:username:{lic_id}:{page}"))
+    kb.add(types.InlineKeyboardButton("📞 تغییر یوزرنیم پشتیبانی", callback_data=f"bm:edit_field:support:{lic_id}:{page}"))
+    kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data=f"bot_manage:{lic_id}:{page}"))
+    try:
+        bot.edit_message_text(
+            f"✏️ <b>تغییر اطلاعات ربات @{esc(lic.get('bot_username') or '—')}</b>\n\nکدام مورد را می‌خواهید تغییر دهید؟",
+            uid, call.message.message_id, reply_markup=kb, parse_mode="HTML"
+        )
+    except Exception:
+        bot.send_message(uid, "✏️ کدام مورد را تغییر دهید؟", reply_markup=kb)
+    bot.answer_callback_query(call.id)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("bm:edit_field:"))
+def cb_bm_edit_field(call):
+    uid = call.from_user.id
+    parts = call.data.split(":")
+    field = parts[2]
+    lic_id = int(parts[3])
+    page = int(parts[4]) if len(parts) > 4 else 0
+    lic = get_license(lic_id)
+    is_admin = uid in ADMIN_IDS
+    if not lic or (lic["user_id"] != uid and not is_admin):
+        bot.answer_callback_query(call.id, "❌ دسترسی ندارید.", show_alert=True)
+        return
+    labels = {
+        "token":    "🔑 توکن جدید را بفرستید (مثلاً <code>123456:ABC...</code>):",
+        "admin_id": "🆔 آیدی عددی ادمین جدید را بفرستید:",
+        "username": "🤖 یوزرنیم ربات جدید را بفرستید (مثلاً @MyBot):",
+        "support":  "📞 یوزرنیم پشتیبانی جدید را بفرستید:",
+    }
+    USER_STATE[uid] = {"step": "bm_edit_field", "field": field, "lic_id": lic_id, "page": page,
+                       "msg_id": call.message.message_id}
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("❌ انصراف", callback_data=f"bm:edit:{lic_id}:{page}"))
+    try:
+        bot.edit_message_text(labels.get(field, "مقدار جدید را بفرستید:"),
+                              uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        bot.send_message(uid, labels.get(field, "مقدار جدید را بفرستید:"), reply_markup=kb, parse_mode="HTML")
     bot.answer_callback_query(call.id)
 
 
@@ -624,15 +862,21 @@ def cb_adm_lic_detail(call):
     )
 
     kb = types.InlineKeyboardMarkup()
-    # Action buttons
+    # Management actions (shared with user panel)
     kb.row(
-        types.InlineKeyboardButton("▶ روشن", callback_data=f"adm:lic_start:{lic_id}:{page}"),
-        types.InlineKeyboardButton("⏹ خاموش", callback_data=f"adm:lic_stop:{lic_id}:{page}"),
+        types.InlineKeyboardButton("▶ روشن",    callback_data=f"bm:start:{lic_id}:{page}"),
+        types.InlineKeyboardButton("⏹ خاموش",  callback_data=f"bm:stop:{lic_id}:{page}"),
+        types.InlineKeyboardButton("🔁 ریستارت", callback_data=f"bm:restart:{lic_id}:{page}"),
     )
     kb.row(
-        types.InlineKeyboardButton("🔁 ریاستارت", callback_data=f"adm:lic_restart:{lic_id}:{page}"),
-        types.InlineKeyboardButton("🔄 آپدیت", callback_data=f"adm:lic_update:{lic_id}:{page}"),
+        types.InlineKeyboardButton("🔄 آپدیت",          callback_data=f"bm:update:{lic_id}:{page}"),
+        types.InlineKeyboardButton("📋 لاگ‌های ربات",   callback_data=f"bm:logs:{lic_id}:{page}"),
     )
+    kb.row(
+        types.InlineKeyboardButton("✏️ تغییر اطلاعات", callback_data=f"bm:edit:{lic_id}:{page}"),
+        types.InlineKeyboardButton("🔃 اتوآپدیت",       callback_data=f"bm:autoupd:{lic_id}:{page}"),
+    )
+    # Admin-only actions
     kb.row(
         types.InlineKeyboardButton("⏳ تمدید", callback_data=f"adm:extend:{lic_id}"),
         types.InlineKeyboardButton("🚫 معلق", callback_data=f"adm:suspend:{lic_id}"),
@@ -1120,6 +1364,7 @@ def cb_adm_auto_update_status(call):
     bot.answer_callback_query(call.id)
 
 
+@bot.callback_query_handler(func=lambda c: c.data == "adm:broadcast")
 def cb_adm_broadcast(call):
     uid = call.from_user.id
     if uid not in ADMIN_IDS:

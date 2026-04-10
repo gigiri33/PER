@@ -15,8 +15,8 @@ from ..config import (
     SUPPORT_USERNAME,
 )
 from ..db import (
-    ensure_user, create_license, extend_license,
-    get_all_users, get_user_licenses,
+    ensure_user, create_license, extend_license, get_license,
+    get_all_users, get_user_licenses, update_license_fields,
     create_instance, update_instance_status, get_instance_by_token,
     mark_trial_used,
     get_discount_code_by_code,
@@ -618,6 +618,39 @@ def handle_text(message):
             f" کد: <code>{esc(code_text)}</code>\n\n"
             "مرحله : درصد تخفیف را وارد کنید (مثلاً <code>20</code> یعنی ):",
             reply_markup=kb, parse_mode="HTML")
+        return
+
+    # ── User / Admin: Bot Info Edit Field ─────────────────────────────────────
+    if step == "bm_edit_field":
+        field   = state.get("field")
+        lic_id  = state.get("lic_id")
+        page    = state.get("page", 0)
+        lic = get_license(lic_id)
+        is_admin = uid in ADMIN_IDS
+        if not lic or (lic["user_id"] != uid and not is_admin):
+            USER_STATE.pop(uid, None)
+            bot.send_message(uid, "❌ دسترسی ندارید.")
+            return
+        value = text.strip().lstrip("@")
+        if field == "token":
+            if ":" not in value:
+                bot.send_message(uid, "❌ توکن نامعتبر است. فرمت: <code>123456:ABC...</code>", reply_markup=_cancel_kb(), parse_mode="HTML")
+                return
+            update_license_fields(lic_id, bot_token=value)
+        elif field == "admin_id":
+            if not value.lstrip("-").isdigit():
+                bot.send_message(uid, "❌ آیدی عددی وارد کنید.", reply_markup=_cancel_kb())
+                return
+            update_license_fields(lic_id, admin_id=value)
+        elif field == "username":
+            update_license_fields(lic_id, bot_username=value.lstrip("@"))
+        elif field == "support":
+            update_license_fields(lic_id, support_user=value.lstrip("@"))
+        USER_STATE.pop(uid, None)
+        from telebot import types as _types
+        kb = _types.InlineKeyboardMarkup()
+        kb.add(_types.InlineKeyboardButton("⚙️ برگشت به مدیریت", callback_data=f"bot_manage:{lic_id}:{page}"))
+        bot.send_message(uid, "✅ اطلاعات با موفقیت ذخیره شد.", reply_markup=kb)
         return
 
     #  Admin: Discount code  enter percent 
