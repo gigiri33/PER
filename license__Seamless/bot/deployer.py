@@ -400,6 +400,23 @@ def update_instance(project, bot_token, refresh_cache=True):
         return True, "Instance updated and restarted"
 
 
+def backup_instance_db(project, bot_token):
+    """Return a list of (filename, bytes) for all .db files in the instance directory, or empty list."""
+    idir = instance_dir(project, bot_token)
+    if not os.path.isdir(idir):
+        return []
+    result = []
+    for fname in os.listdir(idir):
+        if fname.endswith(".db"):
+            fpath = os.path.join(idir, fname)
+            try:
+                with open(fpath, "rb") as f:
+                    result.append((fname, f.read()))
+            except Exception as e:
+                logger.warning(f"backup_instance_db read error {fpath}: {e}")
+    return result
+
+
 def update_all_instances(project=None, refresh_cache=True):
     """Update all deployed instances, optionally filtered by project."""
     results = []

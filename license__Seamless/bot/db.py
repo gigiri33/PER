@@ -104,6 +104,22 @@ def init_db():
         conn.commit()
     except Exception:
         pass  # Column already exists
+    # Add expired_notified and pending_delete_at columns for 48h cleanup
+    try:
+        conn.execute("ALTER TABLE licenses ADD COLUMN expired_notified INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE licenses ADD COLUMN pending_delete_at REAL DEFAULT 0")
+        conn.commit()
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE licenses ADD COLUMN final_backup_sent INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
+    except Exception:
+        pass
 
     # Discount codes and subscription orders tables
     conn.executescript("""
@@ -414,26 +430,70 @@ def mark_trial_used(user_id, project_type):
 
 
 # ── License Warnings ──────────────────────────────────────────────────────────
+# warning_sent bitmask: bit0 = 24h warning sent, bit1 = 12h warning sent
+
 def get_licenses_expiring_soon(within_hours=24):
-    """Return active licenses expiring within `within_hours` where warning not yet sent."""
+    """Return active licenses expiring within `within_hours` that haven't had their warning for that level sent.
+    Bit 0 (value 1) = 24h warning, Bit 1 (value 2) = 12h warning.
+    """
     now = time.time()
     threshold = now + (within_hours * 3600)
+    bit = 1 if within_hours >= 13 else 2   # 24h → bit0; 12h → bit1
     rows = get_conn().execute(
-        "SELECT * FROM licenses WHERE status='active' AND expires_at <= ? AND expires_at > ? AND warning_sent=0",
-        (threshold, now)
+        "SELECT * FROM licenses WHERE status='active' AND expires_at <= ? AND expires_at > ? AND (warning_sent & ?)=0",
+        (threshold, now, bit)
     ).fetchall()
     return [dict(r) for r in rows]
 
 
-def set_warning_sent(license_id):
+def set_warning_sent(license_id, hours=24):
+    """Mark the warning bit for the given hours threshold."""
+    bit = 1 if hours >= 13 else 2
     conn = get_conn()
-    conn.execute("UPDATE licenses SET warning_sent=1 WHERE id=?", (license_id,))
+    conn.execute("UPDATE licenses SET warning_sent=(warning_sent | ?) WHERE id=?", (bit, license_id))
     conn.commit()
 
 
 def get_all_active_licenses():
     rows = get_conn().execute(
         "SELECT * FROM licenses WHERE status='active' ORDER BY created_at DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_expired_pending_delete():
+    """Return expired licenses where pending_delete_at has passed (time to fully remove)."""
+    now = time.time()
+    rows = get_conn().execute(
+        "SELECT * FROM licenses WHERE status='expired' AND pending_delete_at > 0 AND pending_delete_at <= ?",
+        (now,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_license_pending_delete(license_id, delete_at):
+    """Set the timestamp at which the instance should be fully removed."""
+    conn = get_conn()
+    conn.execute("UPDATE licenses SET pending_delete_at=? WHERE id=?", (delete_at, license_id))
+    conn.commit()
+
+
+def set_license_expired_notified(license_id):
+    conn = get_conn()
+    conn.execute("UPDATE licenses SET expired_notified=1 WHERE id=?", (license_id,))
+    conn.commit()
+
+
+def set_license_final_backup_sent(license_id):
+    conn = get_conn()
+    conn.execute("UPDATE licenses SET final_backup_sent=1 WHERE id=?", (license_id,))
+    conn.commit()
+
+
+def get_expired_not_notified():
+    """Return licenses that just expired but haven't been fully processed yet."""
+    rows = get_conn().execute(
+        "SELECT * FROM licenses WHERE status='expired' AND expired_notified=0"
     ).fetchall()
     return [dict(r) for r in rows]
 

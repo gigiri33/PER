@@ -232,8 +232,24 @@ def cb_lic_detail(call):
 
 
 # ── User Bot Management Menu ──────────────────────────────────────────────────
-def _bot_manage_kb(lic_id, page, is_admin=False):
+def _autoupd_is_active(project, bot_token):
+    """Check whether the per-instance autoupdate timer is active."""
+    from ..deployer import _run, service_name as _svc
+    svc = _svc(project, bot_token)
+    timer_svc = f"{svc}-autoupdate.timer"
+    _, status_out = _run(f"systemctl is-active {timer_svc}")
+    return status_out.strip() == "active"
+
+
+def _bot_manage_kb(lic_id, page, is_admin=False, project="", bot_token=""):
     """Build the management keyboard for a bot (shared between user and admin views)."""
+    # Determine autoupdate state for label
+    if project and bot_token:
+        autoupd_on = _autoupd_is_active(project, bot_token)
+    else:
+        autoupd_on = False
+    autoupd_label = "🟢 اتوآپدیت" if autoupd_on else "🔴 اتوآپدیت"
+
     kb = types.InlineKeyboardMarkup()
     kb.row(
         types.InlineKeyboardButton("▶️ روشن",    callback_data=f"bm:start:{lic_id}:{page}"),
@@ -246,7 +262,7 @@ def _bot_manage_kb(lic_id, page, is_admin=False):
     )
     kb.row(
         types.InlineKeyboardButton("✏️ تغییر اطلاعات", callback_data=f"bm:edit:{lic_id}:{page}"),
-        types.InlineKeyboardButton("🔃 اتوآپدیت",       callback_data=f"bm:autoupd:{lic_id}:{page}"),
+        types.InlineKeyboardButton(autoupd_label,        callback_data=f"bm:autoupd:{lic_id}:{page}"),
     )
     if is_admin:
         kb.row(
@@ -263,12 +279,15 @@ def _bot_manage_kb(lic_id, page, is_admin=False):
 
 def _bot_manage_text(lic, inst=None):
     live_st = deployer_status(inst["project"], inst["bot_token"]) if inst else "—"
+    expired = lic.get("status") == "expired"
+    expired_line = "\n\n❌ <b>اشتراک شما به پایان رسیده. ربات خاموش است.</b>" if expired else ""
     return (
         f"⚙️ <b>مدیریت ربات @{esc(lic.get('bot_username') or '—')}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📌 پلن: {_plan_label(lic['plan'])}  |  📊 {_status_label(lic['status'])}\n"
         f"🖥 وضعیت سرور: <b>{live_st}</b>\n"
         f"⏱️ باقیمانده: {_remaining(lic['expires_at'])}"
+        f"{expired_line}"
     )
 
 
@@ -285,7 +304,11 @@ def cb_bot_manage(call):
         return
     inst = get_instance_by_token(lic['bot_token'])
     text = _bot_manage_text(lic, inst)
-    kb = _bot_manage_kb(lic_id, page, is_admin=is_admin)
+    kb = _bot_manage_kb(
+        lic_id, page, is_admin=is_admin,
+        project=inst["project"] if inst else "",
+        bot_token=lic["bot_token"],
+    )
     try:
         bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
     except Exception:
@@ -317,6 +340,13 @@ def cb_bm_start(call):
     r = _bm_get_lic_inst(call)
     if not r: return
     uid, lic_id, page, lic, inst, is_admin = r
+    # Block start if subscription is expired (admins can still start)
+    if lic.get("status") == "expired" and not is_admin:
+        bot.answer_callback_query(call.id,
+            "❌ اشتراک شما به پایان رسیده. برای تمدید اقدام کنید.",
+            show_alert=True
+        )
+        return
     ok, _ = start_instance(inst["project"], inst["bot_token"])
     if ok: update_instance_status(inst["id"], "running")
     bot.answer_callback_query(call.id, "▶️ روشن شد." if ok else "❌ خطا در روشن کردن", show_alert=not ok)
@@ -387,19 +417,18 @@ def cb_bm_autoupd(call):
     r = _bm_get_lic_inst(call)
     if not r: return
     uid, lic_id, page, lic, inst, is_admin = r
-    bot.answer_callback_query(call.id)
     from ..deployer import _run, service_name as _svc
     svc = _svc(inst["project"], inst["bot_token"])
     timer_svc = f"{svc}-autoupdate.timer"
-    ok_check, status_out = _run(f"systemctl is-active {timer_svc}")
+    _, status_out = _run(f"systemctl is-active {timer_svc}")
     is_active = (status_out.strip() == "active")
     if is_active:
         _run(f"systemctl stop {timer_svc} ; systemctl disable {timer_svc}")
-        msg = "🔕 اتوآپدیت خاموش شد."
+        msg = "🔴 اتوآپدیت خاموش شد."
     else:
         _run(f"systemctl enable {timer_svc} ; systemctl start {timer_svc}")
-        msg = "🔔 اتوآپدیت روشن شد."
-    bot.send_message(uid, msg)
+        msg = "🟢 اتوآپدیت روشن شد."
+    bot.answer_callback_query(call.id, msg, show_alert=False)
     call.data = f"bot_manage:{lic_id}:{page}"
     cb_bot_manage(call)
 
@@ -863,6 +892,9 @@ def cb_adm_lic_detail(call):
     )
 
     kb = types.InlineKeyboardMarkup()
+    # Autoupdate state label
+    autoupd_on = _autoupd_is_active(inst["project"], lic["bot_token"]) if inst else False
+    autoupd_label = "🟢 اتوآپدیت" if autoupd_on else "🔴 اتوآپدیت"
     # Management actions (shared with user panel)
     kb.row(
         types.InlineKeyboardButton("▶ روشن",    callback_data=f"bm:start:{lic_id}:{page}"),
@@ -875,7 +907,7 @@ def cb_adm_lic_detail(call):
     )
     kb.row(
         types.InlineKeyboardButton("✏️ تغییر اطلاعات", callback_data=f"bm:edit:{lic_id}:{page}"),
-        types.InlineKeyboardButton("🔃 اتوآپدیت",       callback_data=f"bm:autoupd:{lic_id}:{page}"),
+        types.InlineKeyboardButton(autoupd_label,       callback_data=f"bm:autoupd:{lic_id}:{page}"),
     )
     # Admin-only actions
     kb.row(

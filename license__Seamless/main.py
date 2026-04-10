@@ -19,10 +19,13 @@ from bot.db import (
     get_licenses_expiring_soon, set_warning_sent,
     get_all_instances, get_user, get_all_active_licenses,
     get_instance_by_token, update_instance_status,
+    get_expired_not_notified, set_license_expired_notified,
+    set_license_pending_delete, get_expired_pending_delete,
+    set_license_final_backup_sent, delete_instance, delete_license,
 )
 from bot.bot_instance import bot as tg_bot
 from bot.config import ADMIN_IDS, AUTO_UPDATE_ENABLED, AUTO_UPDATE_INTERVAL
-from bot.deployer import stop_instance, repo_has_updates, update_all_instances, get_repo_changed_files
+from bot.deployer import stop_instance, repo_has_updates, update_all_instances, get_repo_changed_files, backup_instance_db, remove_instance
 
 # Import handlers (registers them with bot)
 import bot.handlers  # noqa: F401
@@ -40,46 +43,130 @@ def _notify_via_bot_token(bot_token, admin_id, text):
         logger.warning(f"notify_via_bot_token failed ({admin_id}): {e}")
 
 
+def _send_final_backup(lic, inst):
+    """Take a final DB backup for the given license/instance and send to BACKUP_CHANNEL."""
+    if not inst:
+        return
+    project = inst.get("project", "")
+    token = lic.get("bot_token", "")
+    if not project or not token:
+        return
+    try:
+        db_files = backup_instance_db(project, token)
+        if not db_files:
+            return
+        owner = get_user(lic["user_id"])
+        owner_name = ""
+        if owner:
+            fn = owner.get("first_name") or ""
+            un = f" (@{owner['username']})" if owner.get("username") else ""
+            owner_name = fn + un
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        caption = (
+            f"💾 <b>بکاپ نهایی هنگام انقضا — {now_str}</b>\n\n"
+            f"🤖 ربات: @{lic.get('bot_username') or '—'}\n"
+            f"📌 پروژه: {project}\n"
+            f"👤 صاحب: {owner_name} — <code>{lic['user_id']}</code>\n"
+            f"🆔 لایسنس: #{lic['id']}"
+        )
+        for fname, fdata in db_files:
+            import io
+            tg_bot.send_document(
+                BACKUP_CHANNEL,
+                io.BytesIO(fdata),
+                caption=caption,
+                parse_mode="HTML",
+                visible_file_name=f"{lic.get('bot_username','bot')}_final_{fname}"
+            )
+        logger.info(f"Final backup sent for license #{lic['id']}")
+    except Exception as e:
+        logger.error(f"_send_final_backup error for license #{lic['id']}: {e}")
+
+
 def expire_checker():
-    """Background thread: every 60s marks expired licenses, stops their instance, notifies."""
+    """Background thread: every 60s marks expired licenses, takes final backup, stops instance, notifies."""
     while True:
         try:
+            # Step 1: mark newly expired licenses and start the expiry process
             expired = get_expired_licenses()
             for lic in expired:
                 update_license_status(lic["id"], "expired")
                 logger.info(f"License #{lic['id']} expired (user {lic['user_id']})")
 
-                # 1. Notify user via the license bot
-                try:
-                    tg_bot.send_message(
-                        lic["user_id"],
-                        f"⏰ <b>لایسنس ربات @{lic['bot_username']} منقضی شد.</b>\n\n"
-                        f"ربات شما خاموش شد.\n"
-                        f"برای فعال‌سازی مجدد اشتراک تهیه کنید.",
-                        parse_mode="HTML"
-                    )
-                except Exception:
-                    pass
-
-                # 2. Notify admin via the bot's own token
-                if lic.get("bot_token") and lic.get("admin_id"):
-                    _notify_via_bot_token(
-                        lic["bot_token"], lic["admin_id"],
-                        "⏰ لایسنس ربات شما منقضی شد و ربات خاموش شد.\n"
-                        "برای فعال‌سازی مجدد با پشتیبانی تماس بگیرید."
-                    )
-
-                # 3. Stop the bot instance
+            # Step 2: process all expired-but-not-yet-notified licenses
+            to_process = get_expired_not_notified()
+            for lic in to_process:
                 inst = get_instance_by_token(lic["bot_token"])
+
+                # 2a. Take a final backup BEFORE stopping
+                if not lic.get("final_backup_sent"):
+                    _send_final_backup(lic, inst)
+                    set_license_final_backup_sent(lic["id"])
+
+                # 2b. Stop the bot instance
                 if inst:
                     project = inst.get("project", "")
                     try:
                         ok, _ = stop_instance(project, lic["bot_token"])
                         if ok:
                             update_instance_status(inst["id"], "stopped")
-                            logger.info(f"Instance stopped for license #{lic['id']}")
                     except Exception as e:
                         logger.error(f"Stop instance error for license #{lic['id']}: {e}")
+
+                # 2c. Notify user via license bot
+                try:
+                    tg_bot.send_message(
+                        lic["user_id"],
+                        f"⏰ <b>اشتراک ربات @{lic.get('bot_username','—')} به پایان رسید.</b>\n\n"
+                        f"ربات شما خاموش شد.\n\n"
+                        f"⚠️ اطلاعات ربات شما تا <b>48 ساعت دیگر</b> روی سرور باقی می‌ماند "
+                        f"و سپس حذف خواهد شد.\n"
+                        f"پس از حذف، در صورت نیاز باید اشتراک جدید خریداری کنید "
+                        f"و دیتابیس خود را روی آن بارگذاری کنید.",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+
+                # 2d. Notify via the bot's own token to its admin
+                if lic.get("bot_token") and lic.get("admin_id"):
+                    _notify_via_bot_token(
+                        lic["bot_token"], lic["admin_id"],
+                        "⏰ لایسنس ربات شما منقضی شد و ربات خاموش شد.\n"
+                        "برای فعال‌سازی مجدد اشتراک جدید تهیه کنید."
+                    )
+
+                # 2e. Schedule deletion in 48 hours
+                delete_at = time.time() + (48 * 3600)
+                set_license_pending_delete(lic["id"], delete_at)
+                set_license_expired_notified(lic["id"])
+
+            # Step 3: permanently delete instances where 48h grace period is over
+            for lic in get_expired_pending_delete():
+                inst = get_instance_by_token(lic.get("bot_token", ""))
+                if inst:
+                    project = inst.get("project", "")
+                    try:
+                        remove_instance(project, lic["bot_token"])
+                    except Exception as e:
+                        logger.error(f"remove_instance failed for #{lic['id']}: {e}")
+                    delete_instance(inst["id"])
+
+                # Notify user of full removal
+                try:
+                    tg_bot.send_message(
+                        lic["user_id"],
+                        f"🗑 <b>ربات @{lic.get('bot_username','—')} از سرور حذف شد.</b>\n\n"
+                        f"در صورت نیاز به راه‌اندازی مجدد، یک اشتراک جدید خریداری کنید "
+                        f"و دیتابیس قبلی خود را روی آن بارگذاری کنید.",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+
+                # Clear pending_delete_at so this doesn't re-trigger
+                set_license_pending_delete(lic["id"], -1)
+                logger.info(f"License #{lic['id']} instance fully removed after 48h grace period")
 
         except Exception as e:
             logger.error(f"expire_checker error: {e}")
@@ -87,37 +174,42 @@ def expire_checker():
 
 
 def warning_checker():
-    """Every hour: warn users whose licenses expire within 24 hours."""
+    """Every 30 minutes: warn users whose licenses expire within 24h or 12h."""
     while True:
-        time.sleep(3600)
+        time.sleep(1800)
         try:
-            expiring = get_licenses_expiring_soon(within_hours=24)
-            for lic in expiring:
-                remaining_h = max(0, int((lic["expires_at"] - time.time()) / 3600))
+            for warn_hours in (24, 12):
+                expiring = get_licenses_expiring_soon(within_hours=warn_hours)
+                for lic in expiring:
+                    remaining_h = max(0, int((lic["expires_at"] - time.time()) / 3600))
+                    remaining_m = max(0, int(((lic["expires_at"] - time.time()) % 3600) / 60))
+                    if remaining_h > 0:
+                        remaining_str = f"{remaining_h} ساعت"
+                    else:
+                        remaining_str = f"{remaining_m} دقیقه"
 
-                # 1. Notify in license bot
-                try:
-                    tg_bot.send_message(
-                        lic["user_id"],
-                        f"⚠️ <b>لایسنس ربات @{lic['bot_username']} رو به پایان است!</b>\n\n"
-                        f"⏳ حدود {remaining_h} ساعت دیگر منقضی می‌شود.\n"
-                        f"لطفاً اقدام به خرید اشتراک برای این ربات کنید.",
-                        parse_mode="HTML"
-                    )
-                except Exception:
-                    pass
+                    # Notify via license bot
+                    try:
+                        tg_bot.send_message(
+                            lic["user_id"],
+                            f"⚠️ <b>اشتراک ربات @{lic.get('bot_username','—')} رو به پایان است!</b>\n\n"
+                            f"⏳ <b>{remaining_str} دیگر</b> اشتراک شما به پایان می‌رسد.\n\n"
+                            f"برای تمدید اقدام کنید تا ربات شما قطع نشود.",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
 
-                # 2. Notify via the bot's own token to admin
-                if lic.get("bot_token") and lic.get("admin_id"):
-                    _notify_via_bot_token(
-                        lic["bot_token"], lic["admin_id"],
-                        f"⚠️ لایسنس ربات شما رو به پایان است!\n"
-                        f"حدود {remaining_h} ساعت دیگر منقضی می‌شود.\n"
-                        f"برای تمدید با پشتیبانی تماس بگیرید."
-                    )
+                    # Notify via the bot's own token
+                    if lic.get("bot_token") and lic.get("admin_id"):
+                        _notify_via_bot_token(
+                            lic["bot_token"], lic["admin_id"],
+                            f"⚠️ لایسنس ربات شما {remaining_str} دیگر منقضی می‌شود.\n"
+                            f"برای تمدید با پشتیبانی تماس بگیرید."
+                        )
 
-                set_warning_sent(lic["id"])
-                logger.info(f"Warning sent for license #{lic['id']}")
+                    set_warning_sent(lic["id"], hours=warn_hours)
+                    logger.info(f"Warning ({warn_hours}h) sent for license #{lic['id']}")
         except Exception as e:
             logger.error(f"warning_checker error: {e}")
 
