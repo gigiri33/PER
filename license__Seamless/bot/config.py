@@ -30,6 +30,13 @@ DEPLOY_BASE_DIR = "/opt/license-bots"
 CONFIGFLOW_REPO_URL = "https://github.com/Emadhabibnia1385/ConfigFlow.git"
 SEAMLESS_REPO_URL = "https://github.com/gigiri33/PER.git"
 LICENSE_API_PORT = int(os.getenv("LICENSE_API_PORT", "8585"))
+CONFIGFLOW_REPO_BRANCH = os.getenv("CONFIGFLOW_REPO_BRANCH", "main").strip() or "main"
+SEAMLESS_REPO_BRANCH = os.getenv("SEAMLESS_REPO_BRANCH", "main").strip() or "main"
+AUTO_UPDATE_ENABLED = os.getenv("AUTO_UPDATE_ENABLED", "1").strip() == "1"
+try:
+    AUTO_UPDATE_INTERVAL = max(60, int(os.getenv("AUTO_UPDATE_INTERVAL", "60") or "60"))
+except ValueError:
+    AUTO_UPDATE_INTERVAL = 60
 
 # Support
 SUPPORT_USERNAME = "https://t.me/EmadHabibnia?direct"

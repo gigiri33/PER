@@ -21,8 +21,8 @@ from bot.db import (
     get_instance_by_token, update_instance_status,
 )
 from bot.bot_instance import bot as tg_bot
-from bot.config import ADMIN_IDS
-from bot.deployer import stop_instance
+from bot.config import ADMIN_IDS, AUTO_UPDATE_ENABLED, AUTO_UPDATE_INTERVAL
+from bot.deployer import stop_instance, repo_has_updates, update_all_instances
 
 # Import handlers (registers them with bot)
 import bot.handlers  # noqa: F401
@@ -166,6 +166,55 @@ def backup_worker():
             logger.error(f"backup_worker error: {e}")
 
 
+def auto_update_worker():
+    """Every AUTO_UPDATE_INTERVAL seconds, check both GitHub repos and update deployed bots if needed."""
+    if not AUTO_UPDATE_ENABLED:
+        logger.info("Automatic instance updater is disabled.")
+        return
+
+    tracked_projects = ("configflow", "seamless")
+    logger.info(f"Automatic instance updater enabled (interval={AUTO_UPDATE_INTERVAL}s)")
+
+    while True:
+        try:
+            for project in tracked_projects:
+                has_update, local_rev, remote_rev, err = repo_has_updates(project)
+                if err:
+                    logger.warning(f"auto_update_worker[{project}] check failed: {err}")
+                    continue
+                if not has_update:
+                    continue
+
+                logger.info(
+                    f"New GitHub update detected for {project}: "
+                    f"{(local_rev or 'none')[:7]} -> {(remote_rev or 'none')[:7]}"
+                )
+                results = update_all_instances(project=project, refresh_cache=True)
+                ok_count = sum(1 for _, ok, _ in results if ok)
+                fail_count = sum(1 for _, ok, _ in results if not ok)
+                logger.info(
+                    f"Auto update finished for {project}: {ok_count} success, {fail_count} failed"
+                )
+
+                if results:
+                    summary = (
+                        f"🔄 آپدیت خودکار {project}\n"
+                        f"نسخه جدید از GitHub اعمال شد.\n"
+                        f"✅ موفق: {ok_count}\n"
+                        f"❌ خطا: {fail_count}\n"
+                        f"Commit: {(local_rev or 'none')[:7]} -> {(remote_rev or 'none')[:7]}"
+                    )
+                    for admin_id in ADMIN_IDS:
+                        try:
+                            tg_bot.send_message(admin_id, summary)
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.error(f"auto_update_worker error: {e}")
+
+        time.sleep(AUTO_UPDATE_INTERVAL)
+
+
 def start_license_api():
     """Start Flask API server for license checks."""
     from license_api import app as flask_app
@@ -186,6 +235,9 @@ def main():
 
     logger.info("Starting backup worker thread...")
     threading.Thread(target=backup_worker, daemon=True).start()
+
+    logger.info("Starting automatic updater thread...")
+    threading.Thread(target=auto_update_worker, daemon=True).start()
 
     # Start License API in background thread
     api_thread = threading.Thread(target=start_license_api, daemon=True)

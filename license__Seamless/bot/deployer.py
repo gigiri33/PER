@@ -12,14 +12,24 @@ import shutil
 import logging
 import threading
 
+from .config import (
+    DEPLOY_BASE_DIR,
+    CONFIGFLOW_REPO_URL,
+    SEAMLESS_REPO_URL,
+    CONFIGFLOW_REPO_BRANCH,
+    SEAMLESS_REPO_BRANCH,
+)
+
 logger = logging.getLogger(__name__)
 
-BASE_DIR = "/opt/license-bots"
+BASE_DIR = DEPLOY_BASE_DIR
 REPOS_CACHE = os.path.join(BASE_DIR, ".repos")
-CONFIGFLOW_REPO = "https://github.com/Emadhabibnia1385/ConfigFlow.git"
-SEAMLESS_REPO = "https://github.com/gigiri33/PER.git"
+_REPO_META = {
+    "configflow": {"url": CONFIGFLOW_REPO_URL, "branch": CONFIGFLOW_REPO_BRANCH},
+    "seamless": {"url": SEAMLESS_REPO_URL, "branch": SEAMLESS_REPO_BRANCH},
+}
 
-_deploy_lock = threading.Lock()
+_deploy_lock = threading.RLock()
 
 
 def _run(cmd, cwd=None, timeout=300):
@@ -40,6 +50,13 @@ def _run(cmd, cwd=None, timeout=300):
 def _ensure_dirs():
     os.makedirs(REPOS_CACHE, exist_ok=True)
     os.makedirs(BASE_DIR, exist_ok=True)
+
+
+def _repo_info(project):
+    project_key = (project or "").strip().lower()
+    if project_key not in _REPO_META:
+        raise ValueError(f"Unknown project: {project}")
+    return _REPO_META[project_key]
 
 
 def _bot_id_from_token(token):
@@ -64,22 +81,65 @@ def service_name(project, bot_token):
 def update_repo_cache(project):
     """Clone or pull the latest repo into cache. Returns (success, message)."""
     _ensure_dirs()
-    repo_url = SEAMLESS_REPO if project == "seamless" else CONFIGFLOW_REPO
+    meta = _repo_info(project)
+    repo_url = meta["url"]
+    branch = meta["branch"]
     cache_dir = os.path.join(REPOS_CACHE, project)
 
     if os.path.isdir(os.path.join(cache_dir, ".git")):
-        ok, out = _run("git fetch --all --prune && git reset --hard origin/main", cwd=cache_dir)
+        ok, out = _run(
+            f"git fetch --depth 1 origin {branch} --prune && git checkout -B {branch} FETCH_HEAD && git reset --hard FETCH_HEAD",
+            cwd=cache_dir
+        )
         if ok:
-            return True, f"Repo {project} updated"
+            return True, f"Repo {project} updated to {branch}"
         return False, f"Failed to update repo: {out}"
     else:
         if os.path.exists(cache_dir):
             shutil.rmtree(cache_dir)
-        ok, out = _run(f"git clone --depth 1 {repo_url} {cache_dir}")
+        ok, out = _run(f"git clone --depth 1 --branch {branch} {repo_url} {cache_dir}")
         if ok:
-            return True, f"Repo {project} cloned"
+            return True, f"Repo {project} cloned from {branch}"
         return False, f"Failed to clone repo: {out}"
 
+
+def get_local_repo_revision(project):
+    """Return the current cached repo commit hash for a project, if available."""
+    cache_dir = os.path.join(REPOS_CACHE, project)
+    if not os.path.isdir(os.path.join(cache_dir, ".git")):
+        return ""
+    ok, out = _run("git rev-parse HEAD", cwd=cache_dir, timeout=60)
+    if not ok:
+        return ""
+    return (out or "").strip().splitlines()[0].strip()
+
+
+def get_remote_repo_revision(project):
+    """Return the latest remote commit hash for the configured branch."""
+    _ensure_dirs()
+    meta = _repo_info(project)
+    ok, out = _run(
+        f"git ls-remote {meta['url']} refs/heads/{meta['branch']}",
+        cwd=BASE_DIR,
+        timeout=60,
+    )
+    if not ok:
+        return "", out
+    line = next((ln.strip() for ln in (out or "").splitlines() if ln.strip()), "")
+    if not line:
+        return "", "No remote revision returned"
+    revision = line.split()[0].strip()
+    return revision, ""
+
+
+def repo_has_updates(project):
+    """Compare cached revision with GitHub and report whether an update exists."""
+    local_rev = get_local_repo_revision(project)
+    remote_rev, err = get_remote_repo_revision(project)
+    if err:
+        return False, local_rev, remote_rev, err
+    has_update = (not local_rev) or (local_rev != remote_rev)
+    return has_update, local_rev, remote_rev, ""
 
 def ensure_repo_cache(project):
     """Make sure local cache exists, clone if needed."""
@@ -105,10 +165,10 @@ def deploy_instance(project, bot_token, admin_id, db_name="Seamless.db",
             svc = service_name(project, bot_token)
             bot_id = _bot_id_from_token(bot_token)
 
-            # 1. Ensure repo cache
-            ok, msg = ensure_repo_cache(project)
+            # 1. Always pull the latest GitHub code before each deployment
+            ok, msg = update_repo_cache(project)
             if not ok:
-                return False, f"Repo cache failed: {msg}"
+                return False, f"Repo sync failed: {msg}"
 
             cache_dir = os.path.join(REPOS_CACHE, project)
 
@@ -267,61 +327,77 @@ def remove_instance(project, bot_token):
     return True, f"Instance removed: {idir}"
 
 
-def update_instance(project, bot_token):
+def update_instance(project, bot_token, refresh_cache=True):
     """Update code from cached repo, keep .env and .db files."""
-    idir = instance_dir(project, bot_token)
-    svc = service_name(project, bot_token)
+    with _deploy_lock:
+        idir = instance_dir(project, bot_token)
+        svc = service_name(project, bot_token)
 
-    if not os.path.isdir(idir):
-        return False, "Instance not found"
+        if not os.path.isdir(idir):
+            return False, "Instance not found"
 
-    # Update cache first
-    ok, msg = update_repo_cache(project)
-    if not ok:
-        return False, f"Repo update failed: {msg}"
+        if refresh_cache:
+            ok, msg = update_repo_cache(project)
+            if not ok:
+                return False, f"Repo update failed: {msg}"
 
-    cache_dir = os.path.join(REPOS_CACHE, project)
+        cache_dir = os.path.join(REPOS_CACHE, project)
 
-    # Preserve .env
-    env_backup = None
-    env_path = os.path.join(idir, ".env")
-    if os.path.isfile(env_path):
-        with open(env_path, "r") as f:
-            env_backup = f.read()
+        # Preserve .env
+        env_backup = None
+        env_path = os.path.join(idir, ".env")
+        if os.path.isfile(env_path):
+            with open(env_path, "r") as f:
+                env_backup = f.read()
 
-    # Remove old code (keep venv, .db, .env)
-    for item in os.listdir(idir):
-        item_path = os.path.join(idir, item)
-        if item.endswith(".db") or item == ".env" or item == "venv":
-            continue
-        if os.path.isdir(item_path):
-            shutil.rmtree(item_path)
-        else:
-            os.remove(item_path)
+        # Remove old code (keep venv, .db, .env)
+        for item in os.listdir(idir):
+            item_path = os.path.join(idir, item)
+            if item.endswith(".db") or item == ".env" or item == "venv":
+                continue
+            if os.path.isdir(item_path):
+                shutil.rmtree(item_path)
+            else:
+                os.remove(item_path)
 
-    # Copy new code
-    _copy_project_files(cache_dir, idir)
+        # Copy new code
+        _copy_project_files(cache_dir, idir)
 
-    # Restore .env
-    if env_backup:
-        with open(env_path, "w") as f:
-            f.write(env_backup)
+        # Restore .env
+        if env_backup:
+            with open(env_path, "w") as f:
+                f.write(env_backup)
 
-    # Reinstall deps
-    venv_dir = os.path.join(idir, "venv")
-    _run(f"{venv_dir}/bin/pip install -r requirements.txt -q", cwd=idir)
+        # Reinstall deps
+        venv_dir = os.path.join(idir, "venv")
+        ok, out = _run(f"{venv_dir}/bin/pip install -r requirements.txt -q", cwd=idir)
+        if not ok:
+            return False, f"pip install failed: {out}"
 
-    # Restart
-    _run(f"systemctl restart {svc}")
+        # Restart
+        ok, out = _run(f"systemctl restart {svc}")
+        if not ok:
+            return False, f"restart failed: {out}"
 
-    return True, "Instance updated and restarted"
+        return True, "Instance updated and restarted"
 
 
-def update_all_instances():
-    """Update all deployed instances."""
+def update_all_instances(project=None, refresh_cache=True):
+    """Update all deployed instances, optionally filtered by project."""
     results = []
     if not os.path.isdir(BASE_DIR):
         return results
+
+    project_filter = (project or "").strip().lower() or None
+    repo_sync_status = {}
+
+    if refresh_cache:
+        target_projects = [project_filter] if project_filter else list(_REPO_META.keys())
+        for proj in target_projects:
+            if proj not in _REPO_META:
+                repo_sync_status[proj] = (False, f"Unknown project: {proj}")
+                continue
+            repo_sync_status[proj] = update_repo_cache(proj)
 
     for name in os.listdir(BASE_DIR):
         if name.startswith("."):
@@ -332,10 +408,11 @@ def update_all_instances():
         parts = name.split("_", 1)
         if len(parts) != 2:
             continue
-        project = parts[0]
-        bot_id = parts[1]
+        inst_project = parts[0].strip().lower()
 
-        # Find bot token from .env
+        if project_filter and inst_project != project_filter:
+            continue
+
         env_path = os.path.join(full, ".env")
         if not os.path.isfile(env_path):
             continue
@@ -348,11 +425,15 @@ def update_all_instances():
         if not token:
             continue
 
-        ok, msg = update_instance(project, token)
+        if refresh_cache and inst_project in repo_sync_status and not repo_sync_status[inst_project][0]:
+            ok, msg = repo_sync_status[inst_project]
+            results.append((name, False, f"Skipped: {msg}"))
+            continue
+
+        ok, msg = update_instance(inst_project, token, refresh_cache=False)
         results.append((name, ok, msg))
 
     return results
-
 
 def list_all_instances():
     """List all deployed instances with their status."""
