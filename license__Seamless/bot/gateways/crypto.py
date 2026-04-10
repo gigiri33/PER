@@ -9,7 +9,7 @@ from ..config import CRYPTO_PRICES_API
 
 
 def fetch_crypto_prices():
-    """Return dict of {symbol: float(price_in_IRT)} or {} on error."""
+    """Return dict of {symbol: {"irt": float, "usdt": float}} or {} on error."""
     try:
         req = urllib.request.Request(
             CRYPTO_PRICES_API,
@@ -19,12 +19,16 @@ def fetch_crypto_prices():
             data = json.loads(resp.read().decode())
         prices = {}
         for key, val in data.get("result", data).items():
-            if key.endswith("/IRT"):
-                symbol = key.split("/")[0]
-                try:
-                    prices[symbol] = float(str(val).replace(",", ""))
-                except (ValueError, TypeError):
-                    pass
+            if "/" not in key:
+                continue
+            symbol, quote = key.split("/", 1)
+            if quote not in ("IRT", "USDT"):
+                continue
+            try:
+                price = float(str(val).replace(",", ""))
+            except (ValueError, TypeError):
+                continue
+            prices.setdefault(symbol, {})[quote.lower()] = price
         return prices
     except Exception:
         return {}

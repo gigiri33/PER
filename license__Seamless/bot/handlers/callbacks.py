@@ -251,10 +251,14 @@ def cb_donate_gw(call):
     from ..gateways.base import is_gateway_available, is_card_info_complete
     from ..db import setting_get as sg
 
-    # For crypto gateways show address directly
+    # Crypto: show coin selection directly (no IRT needed)
     if gw == "crypto":
         _show_donate_crypto(call, uid, amount)
         return
+
+    # Convert USDT -> Toman for rial gateways
+    rate = _get_usdt_to_toman()
+    amount_irt = int(amount * rate) if rate else 0
 
     donate_id = create_donate_payment(uid, amount, "USDT", gw)
 
@@ -263,9 +267,10 @@ def cb_donate_gw(call):
         card = sg("payment_card", "—")
         bank = sg("payment_bank", "—")
         owner = sg("payment_owner", "—")
+        irt_line = f"\n💵 معادل: <b>{_fmt_toman(amount_irt)} تومان</b>" if amount_irt else ""
         text = (
             f"💳 <b>پرداخت کارت به کارت</b>\n\n"
-            f"💰 مبلغ: <b>{amount} USDT</b>\n\n"
+            f"💰 مبلغ: <b>{amount} USDT</b>{irt_line}\n\n"
             f"🏦 بانک: <b>{esc(bank)}</b>\n"
             f"💳 شماره کارت: <code>{esc(card)}</code>\n"
             f"👤 به نام: <b>{esc(owner)}</b>\n\n"
@@ -277,38 +282,126 @@ def cb_donate_gw(call):
             bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
         except Exception:
             bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
-        # Notify admins
         u = get_user(uid)
         uname = f"@{u['username']}" if u and u.get("username") else str(uid)
         for adm in ADMIN_IDS:
             try:
-                tg_bot_notify = bot
-                tg_bot_notify.send_message(adm,
+                bot.send_message(adm,
                     f"💛 <b>دونیت جدید (کارت)</b>\n"
                     f"👤 {esc(uname)} — <code>{uid}</code>\n"
-                    f"💰 {amount} USDT\n🆔 #{donate_id}"
+                    f"💰 {amount} USDT\n🆔 #{donate_id}",
+                    parse_mode="HTML"
                 )
             except Exception:
                 pass
         bot.answer_callback_query(call.id)
         return
 
-    bot.answer_callback_query(call.id, "⚠️ درگاه پشتیبانی‌نشده", show_alert=True)
+    if not amount_irt:
+        bot.answer_callback_query(call.id, "قیمت تومان در دسترس نیست. لطفاً بعداً تلاش کنید.", show_alert=True)
+        return
+
+    if gw == "tetrapay":
+        from ..gateways.tetrapay import create_tetrapay_order
+        ok, result = create_tetrapay_order(amount_irt, f"donate_{donate_id}", f"donate {amount} USDT")
+        if ok:
+            pay_url = result.get("payment_url") or result.get("url") or ""
+            text = (
+                f"🏦 <b>پرداخت Tetrapay</b>\n\n"
+                f"💰 {amount} USDT — {_fmt_toman(amount_irt)} تومان\n\n"
+                f"🔗 لینک پرداخت:\n{pay_url}\n\n"
+                f"🆔 #{donate_id}"
+            )
+        else:
+            text = f"خطا در Tetrapay:\n{result.get('error', str(result))[:200]}"
+        kb = types.InlineKeyboardMarkup()
+        if ok and pay_url:
+            kb.add(types.InlineKeyboardButton("💳 پرداخت آنلاین", url=pay_url))
+        kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="donate"))
+        try:
+            bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
+        except Exception:
+            bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+        return
+
+    if gw == "swc":
+        from ..gateways.swapwallet_crypto import create_swapwallet_crypto_invoice
+        ok, result = create_swapwallet_crypto_invoice(amount_irt, f"donate_{donate_id}")
+        if ok:
+            pay_url = result.get("payment_url") or result.get("url") or ""
+            text = (
+                f"🔄 <b>پرداخت SwapWallet</b>\n\n"
+                f"💰 {amount} USDT — {_fmt_toman(amount_irt)} تومان\n\n"
+                f"🔗 لینک پرداخت:\n{pay_url}\n\n"
+                f"🆔 #{donate_id}"
+            )
+        else:
+            text = f"خطا در SwapWallet:\n{str(result)[:200]}"
+        kb = types.InlineKeyboardMarkup()
+        if ok and pay_url:
+            kb.add(types.InlineKeyboardButton("💳 پرداخت آنلاین", url=pay_url))
+        kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="donate"))
+        try:
+            bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
+        except Exception:
+            bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+        return
+
+    if gw == "tronpays":
+        from ..gateways.tronpays_rial import create_tronpays_rial_invoice
+        ok, result = create_tronpays_rial_invoice(amount_irt, f"donate_{donate_id}")
+        if ok:
+            pay_url = result.get("payment_url") or result.get("url") or ""
+            text = (
+                f"⚡ <b>پرداخت TronPays</b>\n\n"
+                f"💰 {amount} USDT — {_fmt_toman(amount_irt)} تومان\n\n"
+                f"🔗 لینک پرداخت:\n{pay_url}\n\n"
+                f"🆔 #{donate_id}"
+            )
+        else:
+            text = f"خطا در TronPays:\n{str(result)[:200]}"
+        kb = types.InlineKeyboardMarkup()
+        if ok and pay_url:
+            kb.add(types.InlineKeyboardButton("💳 پرداخت آنلاین", url=pay_url))
+        kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="donate"))
+        try:
+            bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
+        except Exception:
+            bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
+        bot.answer_callback_query(call.id)
+        return
+
+    bot.answer_callback_query(call.id, "درگاه پشتیبانی‌نشده", show_alert=True)
 
 
-def _show_donate_gateways(call, uid, amount):
+def _show_donate_gateways(call, uid, amount_usdt):
     from ..gateways.base import is_gateway_available, is_card_info_complete
     from ..db import setting_get as sg
+    rate = _get_usdt_to_toman()
+    amount_irt = int(amount_usdt * rate) if rate else 0
+    irt_str = f" ({_fmt_toman(amount_irt)} تومان)" if amount_irt else ""
     kb = types.InlineKeyboardMarkup()
     if is_gateway_available("card") and is_card_info_complete():
         lbl = sg("gw_card_display_name", "").strip() or "💳 کارت به کارت"
-        kb.add(types.InlineKeyboardButton(lbl, callback_data=f"donate_gw:card:{amount}"))
+        kb.add(types.InlineKeyboardButton(lbl + irt_str, callback_data=f"donate_gw:card:{amount_usdt}"))
+    if is_gateway_available("tetrapay") and sg("tetrapay_api_key", ""):
+        lbl = sg("gw_tetrapay_display_name", "").strip() or "🏦 Tetrapay"
+        kb.add(types.InlineKeyboardButton(lbl + irt_str, callback_data=f"donate_gw:tetrapay:{amount_usdt}"))
+    if is_gateway_available("swapwallet_crypto") and sg("swapwallet_api_key", ""):
+        lbl = sg("gw_swapwallet_crypto_display_name", "").strip() or "🔄 SwapWallet"
+        kb.add(types.InlineKeyboardButton(lbl + irt_str, callback_data=f"donate_gw:swc:{amount_usdt}"))
+    if is_gateway_available("tronpays_rial") and sg("tronpays_api_key", ""):
+        lbl = sg("gw_tronpays_rial_display_name", "").strip() or "⚡ TronPays"
+        kb.add(types.InlineKeyboardButton(lbl + irt_str, callback_data=f"donate_gw:tronpays:{amount_usdt}"))
     if is_gateway_available("crypto"):
         lbl = sg("gw_crypto_display_name", "").strip() or "💎 ارز دیجیتال"
-        kb.add(types.InlineKeyboardButton(lbl, callback_data=f"donate_gw:crypto:{amount}"))
+        kb.add(types.InlineKeyboardButton(lbl, callback_data=f"donate_gw:crypto:{amount_usdt}"))
     kb.add(types.InlineKeyboardButton("❌ انصراف", callback_data="main_menu"))
+    toman_line = f"\n💵 معادل: <b>{_fmt_toman(amount_irt)} تومان</b>" if amount_irt else ""
     text = (
-        f"💛 <b>دونیت — {amount} USDT</b>\n\n"
+        f"💛 <b>دونیت — {amount_usdt} USDT</b>{toman_line}\n\n"
         "روش پرداخت را انتخاب کنید:"
     )
     try:
@@ -317,18 +410,18 @@ def _show_donate_gateways(call, uid, amount):
         bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
 
 
-def _show_donate_crypto(call, uid, amount):
+def _show_donate_crypto(call, uid, amount_usdt):
     from ..config import CRYPTO_COINS
     from ..db import setting_get as sg
     kb = types.InlineKeyboardMarkup()
     for coin_key, coin_label in CRYPTO_COINS:
         addr = sg(f"crypto_{coin_key}", "")
         if addr:
-            kb.add(types.InlineKeyboardButton(coin_label, callback_data=f"donate_crypto:{coin_key}:{amount}"))
+            kb.add(types.InlineKeyboardButton(coin_label, callback_data=f"donate_crypto:{coin_key}:{amount_usdt}"))
     kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="donate"))
     try:
         bot.edit_message_text(
-            f"💎 <b>پرداخت با ارز دیجیتال</b>\n💰 {amount} USDT\nنوع ارز را انتخاب کنید:",
+            f"💎 <b>پرداخت با ارز دیجیتال</b>\n💰 {amount_usdt} USDT\nنوع ارز را انتخاب کنید:",
             uid, call.message.message_id, reply_markup=kb, parse_mode="HTML"
         )
     except Exception:
@@ -340,17 +433,20 @@ def cb_donate_crypto(call):
     uid = call.from_user.id
     parts = call.data.split(":")
     coin_key = parts[1]
-    amount = parts[2]
-    from ..config import CRYPTO_COINS
+    amount_usdt = float(parts[2])
+    from ..config import CRYPTO_COINS, CRYPTO_API_SYMBOLS
     from ..db import setting_get as sg
     addr = sg(f"crypto_{coin_key}", "")
     label = next((l for k, l in CRYPTO_COINS if k == coin_key), coin_key)
     if not addr:
-        bot.answer_callback_query(call.id, "⚠️ آدرس این ارز هنوز ثبت نشده.", show_alert=True)
+        bot.answer_callback_query(call.id, "آدرس این ارز هنوز ثبت نشده.", show_alert=True)
         return
+    api_symbol = CRYPTO_API_SYMBOLS.get(coin_key, coin_key.upper())
+    coin_amount = _get_coin_amount(amount_usdt, api_symbol)
+    coin_line = f"\n💱 معادل: <b>{_fmt_coin(coin_amount)} {api_symbol}</b>" if coin_amount else ""
     text = (
         f"💛 <b>دونیت با {label}</b>\n\n"
-        f"💰 معادل {amount} USDT ارسال کنید\n\n"
+        f"💰 مبلغ: <b>{amount_usdt} USDT</b>{coin_line}\n\n"
         f"📬 آدرس:\n<code>{esc(addr)}</code>\n\n"
         f"پس از ارسال به {SUPPORT_USERNAME} اطلاع دهید."
     )
@@ -1058,17 +1154,42 @@ def cb_gw_set_value(call):
 
 # Plan IDs and their labels/package tags
 _PLAN_INFO = {
-    "cf_hosted":   (" ConfigFlow   روی سرور ما", "configflow", "price_cf_hosted",  10),
-    "sm_monthly":  (" Seamless ماهانه",           "seamless",   "price_sm_monthly", 10),
-    "sm_premium":  (" Seamless پرمیوم",           "seamless",   "price_sm_premium", 25),
+    "cf_hosted":  ("⚡ ConfigFlow روی سرور ما", "configflow", "price_cf_hosted",  10),
+    "sm_premium": ("💎 Seamless پرمیوم",       "seamless",   "price_sm_premium", 25),
 }
 
 
 def _get_usdt_to_toman():
-    """Fetch current USDTToman rate via Swapwallet API. Returns 0 on failure."""
+    """Fetch current USDT->IRT rate via SwapWallet API. Returns 0 on failure."""
     from ..gateways.crypto import fetch_crypto_prices
     prices = fetch_crypto_prices()
-    return prices.get("USDT", 0)
+    data = prices.get("USDT", {})
+    if isinstance(data, dict):
+        return data.get("irt", 0)
+    return float(data) if data else 0
+
+
+def _get_coin_amount(amount_usdt, coin_symbol):
+    """Return how many units of coin_symbol equal amount_usdt USDT. None on failure."""
+    from ..gateways.crypto import fetch_crypto_prices
+    prices = fetch_crypto_prices()
+    coin_data = prices.get(coin_symbol, {})
+    usdt_rate = coin_data.get("usdt", 0) if isinstance(coin_data, dict) else 0
+    if not usdt_rate:
+        return None
+    return amount_usdt / usdt_rate
+
+
+def _fmt_coin(amount):
+    """Format coin amount with appropriate decimal precision."""
+    if amount is None:
+        return "?"
+    if amount >= 100:
+        return f"{amount:.2f}"
+    elif amount >= 1:
+        return f"{amount:.4f}"
+    else:
+        return f"{amount:.6f}"
 
 
 def _fmt_toman(n):
@@ -1117,21 +1238,15 @@ def cb_buy_type(call):
         )
         kb.add(types.InlineKeyboardButton(f"{label}  {price_usdt:.0f} USDT", callback_data=f"buy_plan:{plan_id}"))
     else:
-        sm_monthly_price = float(setting_get("price_sm_monthly", "10"))
         sm_premium_price = float(setting_get("price_sm_premium", "25"))
-        sm_monthly_toman = int(sm_monthly_price * rate) if rate else 0
         sm_premium_toman = int(sm_premium_price * rate) if rate else 0
-        m_toman = f"  {_fmt_toman(sm_monthly_toman)} تومان" if sm_monthly_toman else ""
-        p_toman = f"  {_fmt_toman(sm_premium_toman)} تومان" if sm_premium_toman else ""
+        p_toman = f"\n💵 معادل: <b>{_fmt_toman(sm_premium_toman)} تومان</b>" if sm_premium_toman else ""
         text = (
-            " <b>Seamless  خرید اشتراک</b>\n\n"
-            f" <b>ماهانه (سرور ما):</b>\n   {sm_monthly_price:.0f} USDT{m_toman}\n\n"
-            f" <b>پرمیوم (لایسنس اختصاصی):</b>\n   {sm_premium_price:.0f} USDT{p_toman}"
+            "🌊 <b>Seamless — خرید اشتراک</b>\n\n"
+            f"💎 <b>پرمیوم (لایسنس اختصاصی):</b>\n"
+            f"   {sm_premium_price:.0f} USDT{p_toman}"
         )
-        kb.row(
-            types.InlineKeyboardButton(f" ماهانه  {sm_monthly_price:.0f} USDT", callback_data="buy_plan:sm_monthly"),
-            types.InlineKeyboardButton(f" پرمیوم  {sm_premium_price:.0f} USDT", callback_data="buy_plan:sm_premium"),
-        )
+        kb.add(types.InlineKeyboardButton(f"💎 پرمیوم — {sm_premium_price:.0f} USDT", callback_data="buy_plan:sm_premium"))
 
     kb.add(types.InlineKeyboardButton(" بازگشت", callback_data="buy_subscription"))
     try:
@@ -1393,14 +1508,14 @@ def cb_buy_gateway(call):
             addr = setting_get(f"crypto_{coin_key}", "")
             if addr:
                 kb2.add(types.InlineKeyboardButton(coin_label, callback_data=f"buy_crypto:{coin_key}:{order_id}"))
-        kb2.add(types.InlineKeyboardButton(" بازگشت", callback_data="main_menu"))
+        kb2.add(types.InlineKeyboardButton("🔙 انصراف", callback_data="main_menu"))
         try:
             bot.edit_message_text(
-                f" <b>پرداخت با ارز دیجیتال</b>\n {final_usdt:.2f} USDT\nنوع ارز را انتخاب کنید:",
+                f"💎 <b>پرداخت با ارز دیجیتال</b>\n💰 {final_usdt:.2f} USDT\nنوع ارز را انتخاب کنید:",
                 uid, call.message.message_id, reply_markup=kb2, parse_mode="HTML"
             )
         except Exception:
-            bot.send_message(uid, " نوع ارز را انتخاب کنید:", reply_markup=kb2)
+            bot.send_message(uid, "💎 نوع ارز را انتخاب کنید:", reply_markup=kb2)
 
     USER_STATE.pop(uid, None)
 
@@ -1411,20 +1526,26 @@ def cb_buy_crypto(call):
     parts = call.data.split(":")
     coin_key = parts[1]
     order_id = parts[2]
-    from ..config import CRYPTO_COINS
+    from ..config import CRYPTO_COINS, CRYPTO_API_SYMBOLS
     addr = setting_get(f"crypto_{coin_key}", "")
     label = next((l for k, l in CRYPTO_COINS if k == coin_key), coin_key)
     if not addr:
-        bot.answer_callback_query(call.id, " آدرس این ارز ثبت نشده است.", show_alert=True)
+        bot.answer_callback_query(call.id, "آدرس این ارز ثبت نشده است.", show_alert=True)
         return
+    order = get_subscription_order(order_id)
+    amount_usdt = float(order["final_usdt"]) if order else 0
+    api_symbol = CRYPTO_API_SYMBOLS.get(coin_key, coin_key.upper())
+    coin_amount = _get_coin_amount(amount_usdt, api_symbol) if amount_usdt else None
+    usdt_line = f"\n💰 مبلغ: <b>{amount_usdt:.2f} USDT</b>" if amount_usdt else ""
+    coin_line = f"\n💱 معادل: <b>{_fmt_coin(coin_amount)} {api_symbol}</b>" if coin_amount else ""
     text = (
-        f" <b>پرداخت با {label}</b>\n\n"
-        f" آدرس:\n<code>{esc(addr)}</code>\n\n"
-        f" سفارش #{order_id}\n"
+        f"💎 <b>پرداخت با {label}</b>{usdt_line}{coin_line}\n\n"
+        f"📬 آدرس:\n<code>{esc(addr)}</code>\n\n"
+        f"🆔 سفارش #{order_id}\n"
         f"پس از ارسال به {SUPPORT_USERNAME} اطلاع دهید."
     )
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton(" منوی اصلی", callback_data="main_menu"))
+    kb.add(types.InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu"))
     try:
         bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
     except Exception:
@@ -1438,23 +1559,20 @@ def cb_buy_crypto(call):
 
 def _show_admin_prices(uid, msg_id):
     cf = float(setting_get("price_cf_hosted",  "10"))
-    sm = float(setting_get("price_sm_monthly", "10"))
     sp = float(setting_get("price_sm_premium", "25"))
     rate = _get_usdt_to_toman()
-    def _t(n): return f"  {_fmt_toman(int(n * rate))} تومان" if rate else ""
+    def _t(n): return f" — {_fmt_toman(int(n * rate))} تومان" if rate else ""
     text = (
-        " <b>قیمت‌گذاری پلن‌ها</b>\n\n"
-        f" ConfigFlow (سرور ما): <b>{cf:.0f} USDT</b>{_t(cf)}\n"
-        f" Seamless ماهانه: <b>{sm:.0f} USDT</b>{_t(sm)}\n"
-        f" Seamless پرمیوم: <b>{sp:.0f} USDT</b>{_t(sp)}\n"
+        "💰 <b>قیمت‌گذاری پلن‌ها</b>\n\n"
+        f"⚡ ConfigFlow (سرور ما): <b>{cf:.0f} USDT</b>{_t(cf)}\n"
+        f"💎 Seamless پرمیوم: <b>{sp:.0f} USDT</b>{_t(sp)}\n"
     )
     kb = types.InlineKeyboardMarkup()
     kb.row(
-        types.InlineKeyboardButton(" ConfigFlow", callback_data="adm:price_set:price_cf_hosted"),
-        types.InlineKeyboardButton(" Seamless ماهانه", callback_data="adm:price_set:price_sm_monthly"),
+        types.InlineKeyboardButton("⚡ ConfigFlow", callback_data="adm:price_set:price_cf_hosted"),
+        types.InlineKeyboardButton("💎 Seamless پرمیوم", callback_data="adm:price_set:price_sm_premium"),
     )
-    kb.add(types.InlineKeyboardButton(" Seamless پرمیوم", callback_data="adm:price_set:price_sm_premium"))
-    kb.add(types.InlineKeyboardButton(" پنل مدیریت", callback_data="admin_panel"))
+    kb.add(types.InlineKeyboardButton("🔙 پنل مدیریت", callback_data="admin_panel"))
     try:
         bot.edit_message_text(text, uid, msg_id, reply_markup=kb, parse_mode="HTML")
     except Exception:
