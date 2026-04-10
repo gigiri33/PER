@@ -6,6 +6,7 @@ Each instance gets its own directory: /opt/license-bots/{project}_{bot_id}/
 Repos are cached locally in /opt/license-bots/.repos/
 """
 import os
+import sqlite3
 import subprocess
 import shutil
 import logging
@@ -394,3 +395,91 @@ def list_all_instances():
         })
 
     return instances
+
+
+def restore_instance_db(project, bot_token, db_content_bytes, db_filename=None):
+    """
+    Safely restore a SQLite .db file for a deployed bot instance.
+    It validates the uploaded backup first, keeps a timestamped backup of the
+    current DB, and auto-rolls back if the service does not come back up.
+    Returns (success, message).
+    """
+    idir = instance_dir(project, bot_token)
+    svc = service_name(project, bot_token)
+
+    if not os.path.isdir(idir):
+        return False, "دایرکتوری نمونه پیدا نشد."
+
+    if len(db_content_bytes) < 16 or db_content_bytes[:16] != b"SQLite format 3\x00":
+        return False, "فایل ارسالی دیتابیس SQLite معتبر نیست."
+
+    db_files = [f for f in os.listdir(idir) if f.endswith(".db")]
+    target_name = db_files[0] if db_files else (db_filename or ("ConfigFlow.db" if project == "configflow" else "Seamless.db"))
+    target_path = os.path.join(idir, target_name)
+    tmp_path = target_path + ".tmp_restore"
+    backup_path = None
+
+    try:
+        # 1) Save uploaded file to a temp path and validate it before touching the live DB
+        with open(tmp_path, "wb") as f:
+            f.write(db_content_bytes)
+
+        test_conn = sqlite3.connect(tmp_path)
+        try:
+            row = test_conn.execute("PRAGMA integrity_check").fetchone()
+            if not row or str(row[0]).lower() != "ok":
+                return False, "فایل بکاپ خراب است و integrity check را رد کرد."
+
+            tables = {r[0] for r in test_conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            required_tables = {"users", "settings", "config_types", "packages", "configs"}
+            if not required_tables.issubset(tables):
+                return False, "این بکاپ مربوط به دیتابیس‌های اصلی ConfigFlow/Seamless نیست یا ناقص است."
+        finally:
+            test_conn.close()
+
+        # 2) Stop the service and back up current DB
+        _run(f"systemctl stop {svc}")
+        import time as _time
+        _time.sleep(1)
+
+        if os.path.isfile(target_path):
+            ts = int(_time.time())
+            backup_path = target_path + f".bak_{ts}"
+            shutil.copy2(target_path, backup_path)
+
+        # Remove stale WAL/SHM files from the previous DB; otherwise SQLite may error after restore
+        for sidecar in (target_path + "-wal", target_path + "-shm"):
+            if os.path.exists(sidecar):
+                os.remove(sidecar)
+
+        # 3) Replace DB atomically
+        os.replace(tmp_path, target_path)
+
+        # 4) Restart and verify; rollback if needed so the bot won't stay down
+        _run(f"systemctl start {svc}")
+        st = ""
+        for _ in range(5):
+            st = instance_status(project, bot_token)
+            if st == "active":
+                break
+            _time.sleep(1)
+        if st != "active":
+            if backup_path and os.path.isfile(backup_path):
+                shutil.copy2(backup_path, target_path)
+                _run(f"systemctl start {svc}")
+            return False, "ری‌استور ناموفق بود؛ بکاپ قبلی برگردانده شد تا ربات قطع نشود."
+
+        return True, f"دیتابیس {target_name} با موفقیت ری‌استور شد و سرویس فعال است."
+    except Exception as e:
+        try:
+            if os.path.isfile(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        try:
+            if backup_path and os.path.isfile(backup_path):
+                shutil.copy2(backup_path, target_path)
+            _run(f"systemctl start {svc}")
+        except Exception:
+            pass
+        return False, f"خطا در ری‌استور: {str(e)}"

@@ -24,6 +24,7 @@ from ..db import (
 from ..deployer import (
     deploy_instance, instance_dir, service_name, _bot_id_from_token,
     update_repo_cache, instance_status as deployer_status,
+    restore_instance_db,
 )
 from .start import main_keyboard, esc
 
@@ -550,3 +551,55 @@ def handle_text(message):
             "مرحله : این کد تخفیف برای کدام بسته است؟",
             reply_markup=kb, parse_mode="HTML")
         return
+
+
+@bot.message_handler(content_types=["document"])
+def handle_document(message):
+    uid = message.from_user.id
+    state = USER_STATE.get(uid) or {}
+
+    if uid not in ADMIN_IDS or state.get("step") != "restore_db":
+        return
+
+    file_name = (message.document.file_name or "").strip()
+    if not file_name.lower().endswith((".db", ".sqlite", ".sqlite3")):
+        bot.send_message(uid, "⚠️ فقط فایل‌های SQLite با پسوند <code>.db</code> یا <code>.sqlite</code> قابل قبول هستند.", parse_mode="HTML")
+        return
+
+    lic_id = state.get("lic_id")
+    page = state.get("page", 0)
+    project = state.get("project")
+    bot_token = state.get("bot_token")
+
+    try:
+        file_info = bot.get_file(message.document.file_id)
+        downloaded = bot.download_file(file_info.file_path)
+    except Exception as e:
+        bot.send_message(uid, f"❌ خطا در دریافت فایل: {esc(str(e))}", parse_mode="HTML")
+        return
+
+    wait_msg = bot.send_message(uid, "⏳ در حال بررسی و ری‌استور دیتابیس... لطفاً صبر کنید.")
+    ok, msg = restore_instance_db(project, bot_token, downloaded, file_name)
+    USER_STATE.pop(uid, None)
+
+    inst = get_instance_by_token(bot_token)
+    if inst and ok:
+        update_instance_status(inst["id"], "running")
+
+    kb = types.InlineKeyboardMarkup()
+    if lic_id:
+        kb.add(types.InlineKeyboardButton("🔙 بازگشت به جزئیات", callback_data=f"adm:lic_detail:{lic_id}:{page}"))
+    else:
+        kb.add(types.InlineKeyboardButton("🔙 پنل مدیریت", callback_data="admin_panel"))
+
+    try:
+        bot.delete_message(uid, wait_msg.message_id)
+    except Exception:
+        pass
+
+    bot.send_message(
+        uid,
+        ("✅ " if ok else "❌ ") + msg,
+        reply_markup=kb,
+        parse_mode="HTML"
+    )

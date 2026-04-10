@@ -612,6 +612,7 @@ def cb_adm_lic_detail(call):
         types.InlineKeyboardButton("⏳ تمدید", callback_data=f"adm:extend:{lic_id}"),
         types.InlineKeyboardButton("🚫 معلق", callback_data=f"adm:suspend:{lic_id}"),
     )
+    kb.add(types.InlineKeyboardButton("📥 ری‌استور دیتابیس", callback_data=f"adm:lic_restore:{lic_id}:{page}"))
     kb.add(types.InlineKeyboardButton("🔙 بازگشت به لیست", callback_data=f"adm:all_lic:{page}"))
     try:
         bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
@@ -719,6 +720,48 @@ def cb_adm_lic_update(call):
         except Exception:
             pass
     threading.Thread(target=_do, daemon=True).start()
+
+
+# ── Admin: Restore Instance DB ───────────────────────────────────────────────
+@bot.callback_query_handler(func=lambda c: c.data.startswith("adm:lic_restore:"))
+def cb_adm_lic_restore(call):
+    uid = call.from_user.id
+    if uid not in ADMIN_IDS:
+        return
+    parts = call.data.split(":")
+    lic_id = int(parts[2])
+    page = int(parts[3]) if len(parts) > 3 else 0
+    lic = get_license(lic_id)
+    if not lic:
+        bot.answer_callback_query(call.id, "❌ لایسنس پیدا نشد.", show_alert=True)
+        return
+    inst = get_instance_by_token(lic["bot_token"])
+    if not inst:
+        bot.answer_callback_query(call.id, "❌ نمونه‌ای برای این لایسنس وجود ندارد.", show_alert=True)
+        return
+    USER_STATE[uid] = {
+        "step": "restore_db",
+        "lic_id": lic_id,
+        "page": page,
+        "project": inst["project"],
+        "bot_token": lic["bot_token"],
+        "bot_username": lic.get("bot_username", ""),
+        "msg_id": call.message.message_id,
+    }
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("❌ انصراف", callback_data=f"adm:lic_detail:{lic_id}:{page}"))
+    try:
+        bot.edit_message_text(
+            f"📥 <b>ری‌استور دیتابیس — @{esc(lic.get('bot_username') or str(lic_id))}</b>\n\n"
+            "⚠️ ربات موقتاً متوقف، دیتابیس جایگزین، و سپس دوباره روشن می‌شود.\n"
+            "بکاپ فعلی نیز نگه داشته می‌شود و در صورت خطا خودکار برمی‌گردد.\n"
+            "فقط بکاپ‌های اصلی <b>ConfigFlow / Seamless</b> پذیرفته می‌شوند.\n\n"
+            "فایل <code>.db</code> بکاپ را ارسال کنید:",
+            uid, call.message.message_id, reply_markup=kb, parse_mode="HTML"
+        )
+    except Exception:
+        bot.send_message(uid, "📥 فایل .db بکاپ را ارسال کنید:", reply_markup=kb)
+    bot.answer_callback_query(call.id)
 
 
 # ── Admin: Extend License ────────────────────────────────────────────────────
