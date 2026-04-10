@@ -467,7 +467,31 @@ def cb_admin_panel(call):
     if uid not in ADMIN_IDS:
         bot.answer_callback_query(call.id, "⛔ دسترسی ندارید.", show_alert=True)
         return
+    USER_STATE.pop(uid, None)
     show_admin_panel(uid)
+    bot.answer_callback_query(call.id)
+
+
+@bot.callback_query_handler(func=lambda c: c.data == "adm:emoji_id_tool")
+def cb_emoji_id_tool(call):
+    uid = call.from_user.id
+    if uid not in ADMIN_IDS:
+        bot.answer_callback_query(call.id, "⛔ دسترسی ندارید.", show_alert=True)
+        return
+
+    USER_STATE[uid] = {"step": "adm_extract_emoji_id"}
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("🔙 پنل مدیریت", callback_data="admin_panel"))
+    text = (
+        "🆔 <b>دریافت آیدی ایموجی پریمیوم</b>\n\n"
+        "یک ایموجی Premium/Custom یا متنی که داخلش ایموجی پریمیوم دارد بفرست.\n"
+        "ربات شناسه عددی آن را برایت استخراج می‌کند.\n\n"
+        "💡 اگر چند ایموجی را در یک پیام بفرستی، همه IDها برگردانده می‌شوند."
+    )
+    try:
+        bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
     bot.answer_callback_query(call.id)
 
 

@@ -116,6 +116,43 @@ def handle_text(message):
 
     step = state.get("step")
 
+    if step == "adm_extract_emoji_id" and uid in ADMIN_IDS:
+        entities = list(message.entities or [])
+        if getattr(message, "caption_entities", None):
+            entities.extend(message.caption_entities or [])
+
+        emoji_ids = []
+        for ent in entities:
+            ent_type = getattr(ent, "type", "")
+            custom_id = getattr(ent, "custom_emoji_id", None) or getattr(ent, "document_id", None)
+            if ent_type == "custom_emoji" and custom_id:
+                custom_id = str(custom_id)
+                if custom_id not in emoji_ids:
+                    emoji_ids.append(custom_id)
+
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("🔙 پنل مدیریت", callback_data="admin_panel"))
+
+        if not emoji_ids:
+            bot.send_message(
+                uid,
+                "❌ داخل این پیام هیچ ایموجی Premium/Custom پیدا نشد.\n\n"
+                "خودِ ایموجی پریمیوم را بفرست، نه استیکر یا ایموجی معمولی.",
+                reply_markup=kb,
+            )
+            return
+
+        ids_text = "\n".join(f"{idx}. <code>{cid}</code>" for idx, cid in enumerate(emoji_ids, 1))
+        bot.send_message(
+            uid,
+            "🆔 <b>شناسه ایموجی پریمیوم</b>\n\n"
+            f"{ids_text}\n\n"
+            "اگر خواستی ایموجی بعدی را هم بفرست.",
+            reply_markup=kb,
+            parse_mode="HTML",
+        )
+        return
+
     # ── Bot Registration Flow (Seamless / ConfigFlow) ────────────────────────
     if step in ("cf_token", "sm_token"):
         if not text or ":" not in text:
