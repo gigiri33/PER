@@ -21,6 +21,7 @@ from ..db import (
     mark_trial_used,
     get_discount_code_by_code,
     setting_get, setting_set,
+    get_subscription_order, get_user,
 )
 from ..deployer import (
     deploy_instance, instance_dir, service_name, _bot_id_from_token,
@@ -165,6 +166,54 @@ def _deploy_background(args):
                 )
             except Exception:
                 pass
+
+
+# ── Subscription Receipt Helpers ──────────────────────────────────────────────
+
+def _receipt_approve_kb(order_id, buyer_uid):
+    kb = types.InlineKeyboardMarkup()
+    kb.row(
+        types.InlineKeyboardButton("✅ تایید رسید", callback_data=f"sub_approve:{order_id}:{buyer_uid}"),
+        types.InlineKeyboardButton("❌ رد کردن",   callback_data=f"sub_reject:{order_id}:{buyer_uid}"),
+    )
+    return kb
+
+
+def _notify_admins_receipt(uid, order_id, order, caption_extra=""):
+    u = get_user(uid)
+    uname = f"@{u['username']}" if u and u.get("username") else str(uid)
+    plan = order.get("plan", "—") if order else "—"
+    amount = f"{order['final_usdt']:.2f} USDT" if order else "—"
+    text = (
+        f"📩 <b>رسید پرداخت دریافت شد</b>\n"
+        f"👤 کاربر: {esc(uname)} — <code>{uid}</code>\n"
+        f"📦 پلن: {esc(plan)}\n"
+        f"💰 مبلغ: {amount}\n"
+        f"🆔 سفارش: #{order_id}"
+        + (f"\n{caption_extra}" if caption_extra else "")
+    )
+    return text
+
+
+def _handle_sub_receipt_text(uid, state, receipt_text):
+    """Handle a text receipt/hash sent by user in sub_receipt_wait state."""
+    from ..config import ADMIN_IDS as _ADMIN_IDS
+    order_id = state.get("order_id")
+    order = get_subscription_order(order_id) if order_id else None
+    caption = _notify_admins_receipt(uid, order_id, order, f"\n🔗 هش/رسید:\n<code>{esc(receipt_text)}</code>")
+    kb = _receipt_approve_kb(order_id, uid)
+    for adm in _ADMIN_IDS:
+        try:
+            bot.send_message(adm, caption, reply_markup=kb, parse_mode="HTML")
+        except Exception:
+            pass
+    USER_STATE.pop(uid, None)
+    bot.send_message(
+        uid,
+        "📩 <b>رسید شما دریافت شد.</b>\n\n"
+        "ادمین در حال بررسی است. پس از تایید پیام دریافت خواهید کرد.",
+        parse_mode="HTML",
+    )
 
 
 # ── Main text handler ────────────────────────────────────────────────────────
@@ -678,6 +727,131 @@ def handle_text(message):
             reply_markup=kb, parse_mode="HTML")
         return
 
+    # ── Subscription: Bot Info Collection (after receipt approved) ────────────
+    if step == "sub_receipt_wait":
+        _handle_sub_receipt_text(uid, state, text)
+        return
+
+    # ── Subscription: Bot Info Collection (after receipt approved) ────────────
+    if step == "sub_bot_token":
+        if not text or ":" not in text:
+            bot.send_message(uid, "❌ توکن ربات نامعتبر است.\nفرمت درست: <code>123456789:ABCdefGHI...</code>",
+                             reply_markup=_cancel_kb(), parse_mode="HTML")
+            return
+        state["bot_token"] = text.strip()
+        state["step"] = "sub_admin_id"
+        USER_STATE[uid] = state
+        bot.send_message(uid,
+            "<b>مرحله ۲:</b> آیدی عددی پشتیبانی را بفرستید:",
+            reply_markup=_cancel_kb(), parse_mode="HTML")
+        return
+
+    if step == "sub_admin_id":
+        if not text.strip().lstrip("-").isdigit():
+            bot.send_message(uid, "❌ آیدی باید عدد باشد.", reply_markup=_cancel_kb())
+            return
+        state["admin_id"] = text.strip()
+        state["step"] = "sub_bot_username"
+        USER_STATE[uid] = state
+        bot.send_message(uid,
+            "<b>مرحله ۳:</b> یوزرنیم ربات را بفرستید (مثلاً @MyBot):",
+            reply_markup=_cancel_kb(), parse_mode="HTML")
+        return
+
+    if step == "sub_bot_username":
+        username = text.strip().lstrip("@")
+        if not username:
+            bot.send_message(uid, "❌ یوزرنیم نامعتبر.", reply_markup=_cancel_kb())
+            return
+        state["bot_username"] = username
+        state["step"] = "sub_support_user"
+        USER_STATE[uid] = state
+        bot.send_message(uid,
+            "<b>مرحله ۴:</b> یوزرنیم پشتیبانی ربات را بفرستید (مثلاً @support):",
+            reply_markup=_cancel_kb(), parse_mode="HTML")
+        return
+
+    if step == "sub_support_user":
+        support = text.strip().lstrip("@")
+        if not support:
+            bot.send_message(uid, "❌ یوزرنیم نامعتبر.", reply_markup=_cancel_kb())
+            return
+        state["support_user"] = support
+
+        plan_id = state.get("plan_id", "")
+        project = "seamless" if "sm" in plan_id else "configflow"
+        plan = "premium" if project == "seamless" else "configflow_monthly"
+
+        bot_token = state["bot_token"]
+        lic_id = create_license(
+            user_id=uid,
+            bot_token=bot_token,
+            bot_username=state["bot_username"],
+            admin_id=state["admin_id"],
+            support_user=support,
+            plan=plan,
+            duration_hours=720,  # 30 days
+        )
+
+        bot_id = _bot_id_from_token(bot_token)
+        idir = instance_dir(project, bot_token)
+        svc = service_name(project, bot_token)
+        inst_id = create_instance(
+            license_id=lic_id,
+            user_id=uid,
+            project=project,
+            bot_token=bot_token,
+            bot_id=bot_id,
+            bot_username=state["bot_username"],
+            admin_id=state["admin_id"],
+            instance_dir=idir,
+            service_name=svc,
+        )
+
+        label = "Seamless" if project == "seamless" else "ConfigFlow"
+        USER_STATE.pop(uid, None)
+        bot.send_message(
+            uid,
+            f"✅ <b>اشتراک {label} شما فعال شد!</b>\n\n"
+            f"🆔 لایسنس: <b>#{lic_id}</b>\n"
+            f"🤖 ربات: @{esc(state['bot_username'])}\n"
+            f"👤 آیدی ادمین: <code>{esc(state['admin_id'])}</code>\n"
+            f"📞 پشتیبانی: @{esc(support)}\n"
+            f"⏳ اعتبار: ۳۰ روز\n\n"
+            "⏬ <b>در حال نصب و راه‌اندازی ربات روی سرور...</b>\n"
+            "لطفاً چند دقیقه صبر کنید. پس از اتمام نصب پیام دریافت خواهید کرد.",
+            reply_markup=main_keyboard(uid),
+            parse_mode="HTML",
+        )
+
+        for adm in ADMIN_IDS:
+            try:
+                bot.send_message(
+                    adm,
+                    f"🆕 لایسنس جدید #{lic_id}\n"
+                    f"👤 کاربر: <code>{uid}</code>\n"
+                    f"🤖 @{esc(state['bot_username'])}\n"
+                    f"📌 {label} — 30 روز\n"
+                    f"⏬ در حال دیپلوی...",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+
+        _deploy_args = {
+            "uid": uid,
+            "project": project,
+            "bot_token": bot_token,
+            "admin_id": state["admin_id"],
+            "bot_username": state["bot_username"],
+            "inst_id": inst_id,
+            "lic_id": lic_id,
+            "label": label,
+        }
+        t = threading.Thread(target=_deploy_background, args=(_deploy_args,), daemon=True)
+        t.start()
+        return
+
 
 @bot.message_handler(content_types=["document"])
 def handle_document(message):
@@ -728,4 +902,34 @@ def handle_document(message):
         ("✅ " if ok else "❌ ") + msg,
         reply_markup=kb,
         parse_mode="HTML"
+    )
+
+
+# ── Photo handler (subscription receipt) ─────────────────────────────────────
+
+@bot.message_handler(content_types=["photo"])
+def handle_photo(message):
+    uid = message.from_user.id
+    state = USER_STATE.get(uid) or {}
+    if state.get("step") != "sub_receipt_wait":
+        return
+
+    order_id = state.get("order_id")
+    order = get_subscription_order(order_id) if order_id else None
+    caption = _notify_admins_receipt(uid, order_id, order)
+    kb = _receipt_approve_kb(order_id, uid)
+
+    photo_id = message.photo[-1].file_id
+    for adm in ADMIN_IDS:
+        try:
+            bot.send_photo(adm, photo_id, caption=caption, reply_markup=kb, parse_mode="HTML")
+        except Exception:
+            pass
+
+    USER_STATE.pop(uid, None)
+    bot.send_message(
+        uid,
+        "📩 <b>رسید شما دریافت شد.</b>\n\n"
+        "ادمین در حال بررسی است. پس از تایید پیام دریافت خواهید کرد.",
+        parse_mode="HTML",
     )

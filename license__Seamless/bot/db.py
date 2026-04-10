@@ -531,3 +531,12 @@ def confirm_subscription_order(order_id, invoice_id=""):
         (invoice_id, time.time(), order_id)
     )
     conn.commit()
+
+
+def reject_subscription_order(order_id):
+    conn = get_conn()
+    conn.execute(
+        "UPDATE subscription_orders SET status='rejected' WHERE id=?",
+        (order_id,)
+    )
+    conn.commit()

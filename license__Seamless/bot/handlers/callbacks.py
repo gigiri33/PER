@@ -25,6 +25,7 @@ from ..db import (
     setting_get, setting_set,
     create_discount_code, get_discount_code_by_code, get_all_discount_codes, delete_discount_code,
     create_subscription_order, get_subscription_order, confirm_subscription_order,
+    reject_subscription_order,
 )
 from ..deployer import (
     start_instance, stop_instance, restart_instance, remove_instance,
@@ -1829,22 +1830,22 @@ def cb_buy_gateway(call):
             f" بانک: <b>{esc(bank)}</b>\n"
             f" شماره کارت: <code>{esc(card)}</code>\n"
             f" به نام: <b>{esc(owner)}</b>\n\n"
-            f"پس از پرداخت، رسید را به {SUPPORT_USERNAME} ارسال کنید.\n"
+            f"✅ پس از واریز، <b>رسید یا تصویر پرداخت</b> را همین‌جا در ربات ارسال کنید.\n"
             f" شماره سفارش: <code>#{order_id}</code>"
         )
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton(" منوی اصلی", callback_data="main_menu"))
+        kb.add(types.InlineKeyboardButton("❌ انصراف", callback_data="main_menu"))
         try:
             bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
         except Exception:
             bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
-        # Notify admins
+        # Notify admins of new order (no receipt yet)
         u = get_user(uid)
         uname = f"@{u['username']}" if u and u.get("username") else str(uid)
         for adm in ADMIN_IDS:
             try:
                 bot.send_message(adm,
-                    f" <b>سفارش جدید (کارت)</b>\n"
+                    f" <b>سفارش جدید (کارت) — در انتظار رسید</b>\n"
                     f" {esc(uname)}  <code>{uid}</code>\n"
                     f" پلن: {label}\n"
                     f" {final_usdt:.2f} USDT / {_fmt_toman(final_toman)} تومان\n"
@@ -1852,6 +1853,11 @@ def cb_buy_gateway(call):
                 )
             except Exception:
                 pass
+        USER_STATE[uid] = {
+            "step": "sub_receipt_wait",
+            "order_id": order_id,
+            "plan_id": plan_id,
+        }
 
     elif gw == "tetrapay":
         if not final_toman:
@@ -1947,7 +1953,9 @@ def cb_buy_gateway(call):
         except Exception:
             bot.send_message(uid, "💎 نوع ارز را انتخاب کنید:", reply_markup=kb2)
 
-    USER_STATE.pop(uid, None)
+    # Card state is set inside the card block; only pop for non-card gateways
+    if gw != "card":
+        USER_STATE.pop(uid, None)
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("buy_crypto:"))
@@ -1970,16 +1978,23 @@ def cb_buy_crypto(call):
     coin_line = f"\n💱 معادل: <b>{_fmt_coin(coin_amount)} {api_symbol}</b>" if coin_amount else ""
     text = (
         f"💎 <b>پرداخت با {label}</b>{usdt_line}{coin_line}\n\n"
-        f"📬 آدرس:\n<code>{esc(addr)}</code>\n\n"
-        f"🆔 سفارش #{order_id}\n"
-        f"پس از ارسال به {SUPPORT_USERNAME} اطلاع دهید."
+        f"📬 آدرس کیف پول:\n<code>{esc(addr)}</code>\n\n"
+        f"🆔 سفارش #{order_id}\n\n"
+        f"✅ پس از پرداخت، <b>هش تراکنش (TxID) یا رسید پرداخت</b> را همین‌جا در ربات ارسال کنید."
     )
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu"))
+    kb.add(types.InlineKeyboardButton("❌ انصراف", callback_data="main_menu"))
     try:
         bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
     except Exception:
         bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
+    # Store state to await receipt from user
+    order = get_subscription_order(order_id) or {}
+    USER_STATE[uid] = {
+        "step": "sub_receipt_wait",
+        "order_id": int(order_id),
+        "plan_id": order.get("plan", ""),
+    }
     bot.answer_callback_query(call.id)
 
 
@@ -2125,3 +2140,80 @@ def cb_buy_confirm_disc(call):
         return
     _show_buy_gateways(call, uid)
     bot.answer_callback_query(call.id)
+
+
+# ── Subscription Receipt: Admin Approve / Reject ─────────────────────────────
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("sub_approve:"))
+def cb_sub_approve(call):
+    uid = call.from_user.id
+    if uid not in ADMIN_IDS:
+        bot.answer_callback_query(call.id, "⛔ دسترسی ندارید.", show_alert=True)
+        return
+    parts = call.data.split(":")
+    order_id = int(parts[1])
+    buyer_uid = int(parts[2])
+
+    order = get_subscription_order(order_id)
+    if not order:
+        bot.answer_callback_query(call.id, "❌ سفارش پیدا نشد.", show_alert=True)
+        return
+
+    confirm_subscription_order(order_id)
+
+    # Set state for buyer to start bot-info collection
+    USER_STATE[buyer_uid] = {
+        "step": "sub_bot_token",
+        "order_id": order_id,
+        "plan_id": order.get("plan", ""),
+    }
+
+    try:
+        bot.send_message(
+            buyer_uid,
+            "✅ <b>رسید شما تایید شد!</b>\n\n"
+            "لطفاً برای نصب ربات، اطلاعات زیر را وارد کنید:\n\n"
+            "<b>مرحله ۱:</b> توکن ربات خود را از @BotFather بفرستید\n"
+            "<code>مثال: 123456789:ABCdefGHI...</code>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+    bot.answer_callback_query(call.id, "✅ رسید تایید شد، کاربر مطلع شد.")
+    try:
+        bot.edit_message_reply_markup(call.from_user.id, call.message.message_id,
+                                      reply_markup=types.InlineKeyboardMarkup())
+    except Exception:
+        pass
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("sub_reject:"))
+def cb_sub_reject(call):
+    uid = call.from_user.id
+    if uid not in ADMIN_IDS:
+        bot.answer_callback_query(call.id, "⛔ دسترسی ندارید.", show_alert=True)
+        return
+    parts = call.data.split(":")
+    order_id = int(parts[1])
+    buyer_uid = int(parts[2])
+
+    reject_subscription_order(order_id)
+    USER_STATE.pop(buyer_uid, None)
+
+    try:
+        bot.send_message(
+            buyer_uid,
+            "❌ <b>رسید شما تایید نشد.</b>\n\n"
+            f"لطفاً با پشتیبانی تماس بگیرید: {SUPPORT_USERNAME}",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+    bot.answer_callback_query(call.id, "❌ رسید رد شد.")
+    try:
+        bot.edit_message_reply_markup(call.from_user.id, call.message.message_id,
+                                      reply_markup=types.InlineKeyboardMarkup())
+    except Exception:
+        pass
