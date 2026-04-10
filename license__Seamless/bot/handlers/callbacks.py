@@ -11,6 +11,7 @@ from ..bot_instance import bot, USER_STATE
 from ..config import (
     ADMIN_IDS, TRIAL_HOURS,
     SUPPORT_USERNAME,
+    AUTO_UPDATE_ENABLED, AUTO_UPDATE_INTERVAL,
 )
 from ..db import (
     ensure_user, get_user_licenses, get_license,
@@ -968,11 +969,12 @@ def cb_adm_manual(call):
 
 
 # ── Admin: Update All ─────────────────────────────────────────────────────────
+@bot.callback_query_handler(func=lambda c: c.data == "adm:update_all")
 def cb_adm_update_all(call):
     uid = call.from_user.id
     if uid not in ADMIN_IDS:
         return
-    bot.answer_callback_query(call.id, "🔄 در حال آپدیت همه...", show_alert=True)
+    bot.answer_callback_query(call.id, "🔄 در حال آپدیت همه ربات‌ها...", show_alert=True)
 
     def _do():
         results = update_all_instances()
@@ -982,15 +984,49 @@ def cb_adm_update_all(call):
             except Exception:
                 pass
             return
-        text = "🔄 <b>نتیجه آپدیت:</b>\n\n"
+        text = "🔄 <b>نتیجه آپدیت همه ربات‌ها</b>\n\n"
         for name, ok, msg in results:
             icon = "✅" if ok else "❌"
             text += f"{icon} {name}: {msg[:80]}\n"
         try:
-            bot.send_message(uid, text)
+            bot.send_message(uid, text, parse_mode="HTML")
         except Exception:
             pass
     threading.Thread(target=_do, daemon=True).start()
+
+
+@bot.callback_query_handler(func=lambda c: c.data == "adm:auto_update_status")
+def cb_adm_auto_update_status(call):
+    uid = call.from_user.id
+    if uid not in ADMIN_IDS:
+        return
+
+    cf_has, cf_local, cf_remote, cf_err = repo_has_updates("configflow")
+    sm_has, sm_local, sm_remote, sm_err = repo_has_updates("seamless")
+
+    def _fmt_line(label, has_update, local_rev, remote_rev, err):
+        if err:
+            return f"❌ {label}: {esc(err[:120])}"
+        if has_update:
+            return f"🟡 {label}: آپدیت جدید آماده است ({(local_rev or 'none')[:7]} → {(remote_rev or 'none')[:7]})"
+        return f"✅ {label}: روی آخرین نسخه است ({(remote_rev or local_rev or 'none')[:7]})"
+
+    status_text = (
+        "🛰 <b>وضعیت اتوآپدیت</b>\n\n"
+        f"{'✅ فعال' if AUTO_UPDATE_ENABLED else '❌ غیرفعال'} | بازه چک: <b>{AUTO_UPDATE_INTERVAL}</b> ثانیه\n\n"
+        f"{_fmt_line('ConfigFlow', cf_has, cf_local, cf_remote, cf_err)}\n"
+        f"{_fmt_line('Seamless', sm_has, sm_local, sm_remote, sm_err)}"
+    )
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("♻️ اجرای آپدیت همین حالا", callback_data="adm:update_all"))
+    kb.add(types.InlineKeyboardButton("🔙 پنل مدیریت", callback_data="admin_panel"))
+    try:
+        bot.edit_message_text(status_text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        bot.send_message(uid, status_text, reply_markup=kb, parse_mode="HTML")
+    bot.answer_callback_query(call.id)
+
+
 def cb_adm_broadcast(call):
     uid = call.from_user.id
     if uid not in ADMIN_IDS:

@@ -137,6 +137,10 @@ def show_admin_panel(uid):
         types.InlineKeyboardButton("🎟 کدهای تخفیف", callback_data="adm:discounts"),
     )
     kb.row(
+        types.InlineKeyboardButton("♻️ آپدیت همه ربات‌ها", callback_data="adm:update_all"),
+        types.InlineKeyboardButton("🛰 وضعیت اتوآپدیت", callback_data="adm:auto_update_status"),
+    )
+    kb.row(
         types.InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu"),
     )
     bot.send_message(uid, text, reply_markup=kb)
