@@ -1620,18 +1620,20 @@ def _fmt_toman(n):
 def cb_buy_subscription(call):
     uid = call.from_user.id
     kb = types.InlineKeyboardMarkup()
-    kb.row(
-        types.InlineKeyboardButton(" Seamless",      callback_data="buy_type:seamless"),
-        types.InlineKeyboardButton(" ConfigFlow",    callback_data="buy_type:cf"),
+    kb.add(types.InlineKeyboardButton("⚡ ConfigFlow — سرور ما", callback_data="buy_type:cf"))
+    kb.add(types.InlineKeyboardButton("💎 Seamless — پرمیوم",   callback_data="buy_type:seamless"))
+    kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu"))
+    text = (
+        "🛒 <b>خرید اشتراک</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "محصول مورد نظر خود را انتخاب کنید:\n\n"
+        "⚡ <b>ConfigFlow</b> — ربات فروش کانفیگ، اجرا روی سرور ما\n"
+        "💎 <b>Seamless</b> — نسخه پیشرفته با امکانات بیشتر"
     )
-    kb.add(types.InlineKeyboardButton(" منوی اصلی", callback_data="main_menu"))
     try:
-        bot.edit_message_text(
-            " <b>خرید اشتراک</b>\n\nکدام محصول را می‌خواهید؟",
-            uid, call.message.message_id, reply_markup=kb, parse_mode="HTML"
-        )
+        bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
     except Exception:
-        bot.send_message(uid, " کدام محصول را می‌خواهید؟", reply_markup=kb)
+        bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
     bot.answer_callback_query(call.id)
 
 
@@ -1647,25 +1649,31 @@ def cb_buy_type(call):
         label, _, key, default_price = _PLAN_INFO[plan_id]
         price_usdt = float(setting_get(key, str(default_price)))
         price_toman = int(price_usdt * rate) if rate else 0
-        toman_line = f"  <b>{_fmt_toman(price_toman)} تومان</b>" if price_toman else ""
+        toman_line = f"\n🇮🇷 معادل: <b>{_fmt_toman(price_toman)} تومان</b>" if price_toman else ""
         text = (
-            " <b>ConfigFlow  ران روی سرور ما</b>\n\n"
-            f" قیمت: <b>{price_usdt:.0f} USDT</b>{toman_line}\n\n"
-            "سرویس به صورت ماهانه روی سرور ما اجرا می‌شود."
+            "⚡ <b>ConfigFlow — سرور ما</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"💰 قیمت ماهانه: <b>{price_usdt:.0f} USDT</b>{toman_line}\n\n"
+            "✅ راه‌اندازی و اجرای کامل روی سرور ما\n"
+            "✅ آپدیت خودکار رایگان\n"
+            "✅ پشتیبانی فنی"
         )
-        kb.add(types.InlineKeyboardButton(f"{label}  {price_usdt:.0f} USDT", callback_data=f"buy_plan:{plan_id}"))
+        kb.add(types.InlineKeyboardButton(f"⚡ خرید ConfigFlow — {price_usdt:.0f} USDT", callback_data=f"buy_plan:{plan_id}"))
     else:
         sm_premium_price = float(setting_get("price_sm_premium", "25"))
         sm_premium_toman = int(sm_premium_price * rate) if rate else 0
-        p_toman = f"\n💵 معادل: <b>{_fmt_toman(sm_premium_toman)} تومان</b>" if sm_premium_toman else ""
+        p_toman = f"\n🇮🇷 معادل: <b>{_fmt_toman(sm_premium_toman)} تومان</b>" if sm_premium_toman else ""
         text = (
-            "🌊 <b>Seamless — خرید اشتراک</b>\n\n"
-            f"💎 <b>پرمیوم (لایسنس اختصاصی):</b>\n"
-            f"   {sm_premium_price:.0f} USDT{p_toman}"
+            "💎 <b>Seamless — پرمیوم</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"💰 قیمت: <b>{sm_premium_price:.0f} USDT</b>{p_toman}\n\n"
+            "✅ تمام امکانات ConfigFlow\n"
+            "✅ مدیریت چند ربات روی سرور شما\n"
+            "✅ آپدیت خودکار سرور"
         )
-        kb.add(types.InlineKeyboardButton(f"💎 پرمیوم — {sm_premium_price:.0f} USDT", callback_data="buy_plan:sm_premium"))
+        kb.add(types.InlineKeyboardButton(f"💎 خرید Seamless پرمیوم — {sm_premium_price:.0f} USDT", callback_data="buy_plan:sm_premium"))
 
-    kb.add(types.InlineKeyboardButton(" بازگشت", callback_data="buy_subscription"))
+    kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="buy_subscription"))
     try:
         bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
     except Exception:
@@ -1694,18 +1702,20 @@ def cb_buy_plan(call):
         "msg_id":           call.message.message_id,
     }
 
-    toman_line = f"  <b>{_fmt_toman(price_toman)} تومان</b>" if price_toman else ""
+    toman_line = f"\n🇮🇷 معادل: <b>{_fmt_toman(price_toman)} تومان</b>" if price_toman else ""
     text = (
-        f" <b>{label}</b>\n\n"
-        f" قیمت: <b>{price_usdt:.0f} USDT</b>{toman_line}\n\n"
-        " آیا کد تخفیف دارید؟"
+        f"🧾 <b>تأیید سفارش</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📦 پلن انتخابی: <b>{label}</b>\n"
+        f"💰 مبلغ: <b>{price_usdt:.0f} USDT</b>{toman_line}\n\n"
+        f"🎟 آیا کد تخفیف دارید؟"
     )
     kb = types.InlineKeyboardMarkup()
     kb.row(
-        types.InlineKeyboardButton(" بله، دارم", callback_data="buy_disc:yes"),
-        types.InlineKeyboardButton(" خیر",       callback_data="buy_disc:no"),
+        types.InlineKeyboardButton("✅ بله، دارم", callback_data="buy_disc:yes"),
+        types.InlineKeyboardButton("➡️ خیر، ادامه", callback_data="buy_disc:no"),
     )
-    kb.add(types.InlineKeyboardButton(" بازگشت", callback_data="buy_subscription"))
+    kb.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="buy_subscription"))
     try:
         bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
     except Exception:
@@ -1725,14 +1735,16 @@ def cb_buy_disc_yn(call):
         state["step"] = "buy_discount_code"
         USER_STATE[uid] = state
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton(" انصراف", callback_data="buy_disc:no"))
+        kb.add(types.InlineKeyboardButton("❌ انصراف", callback_data="buy_disc:no"))
         try:
             bot.edit_message_text(
-                " <b>کد تخفیف</b>\n\nکد تخفیف خود را وارد کنید:",
+                "🎟 <b>کد تخفیف</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+                "کد تخفیف خود را وارد کنید:",
                 uid, call.message.message_id, reply_markup=kb, parse_mode="HTML"
             )
         except Exception:
-            bot.send_message(uid, " کد تخفیف خود را وارد کنید:", reply_markup=kb)
+            bot.send_message(uid, "🎟 کد تخفیف را وارد کنید:", reply_markup=kb)
     else:
         # No discount  show gateways
         state.pop("step", None)
@@ -1751,27 +1763,28 @@ def _show_buy_gateways(call, uid):
     disc_pct = state.get("buy_disc_pct", 0)
 
     label = _PLAN_INFO.get(plan_id, (plan_id,))[0]
-    toman_line = f"  <b>{_fmt_toman(final_toman)} تومان</b>" if final_toman else ""
-    disc_line = f"\n تخفیف: <b>{disc_pct:.0f}</b> (کد: <code>{esc(disc_code)}</code>)" if disc_code else ""
+    toman_line = f"\n🇮🇷 معادل: <b>{_fmt_toman(final_toman)} تومان</b>" if final_toman else ""
+    disc_line = f"\n🎟 تخفیف: <b>{disc_pct:.0f}%</b> — کد: <code>{esc(disc_code)}</code>" if disc_code else ""
     text = (
-        f" <b>انتخاب درگاه پرداخت</b>\n\n"
-        f" پلن: {label}\n"
-        f" مبلغ نهایی: <b>{final_usdt:.2f} USDT</b>{toman_line}{disc_line}\n\n"
+        f"💳 <b>انتخاب درگاه پرداخت</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📦 پلن: <b>{label}</b>\n"
+        f"💰 مبلغ نهایی: <b>{final_usdt:.2f} USDT</b>{toman_line}{disc_line}\n\n"
         "روش پرداخت را انتخاب کنید:"
     )
     from ..gateways.base import is_gateway_available, is_card_info_complete
     kb = types.InlineKeyboardMarkup()
     if is_gateway_available("card") and is_card_info_complete():
-        kb.add(types.InlineKeyboardButton(" کارت به کارت", callback_data="buy_gw:card"))
+        kb.add(types.InlineKeyboardButton("🏦 کارت به کارت", callback_data="buy_gw:card"))
     if is_gateway_available("tetrapay") and setting_get("tetrapay_api_key", ""):
-        kb.add(types.InlineKeyboardButton(" Tetrapay", callback_data="buy_gw:tetrapay"))
+        kb.add(types.InlineKeyboardButton("💸 Tetrapay", callback_data="buy_gw:tetrapay"))
     if is_gateway_available("swapwallet_crypto") and setting_get("swapwallet_api_key", ""):
-        kb.add(types.InlineKeyboardButton(" Swapwallet Crypto", callback_data="buy_gw:swc"))
+        kb.add(types.InlineKeyboardButton("🔗 Swapwallet Crypto", callback_data="buy_gw:swc"))
     if is_gateway_available("tronpays_rial") and setting_get("tronpays_api_key", ""):
-        kb.add(types.InlineKeyboardButton(" TronPays (ریال)", callback_data="buy_gw:tronpays"))
+        kb.add(types.InlineKeyboardButton("🇮🇷 TronPays (ریال)", callback_data="buy_gw:tronpays"))
     if is_gateway_available("crypto"):
-        kb.add(types.InlineKeyboardButton(" ارز دیجیتال (دستی)", callback_data="buy_gw:crypto"))
-    kb.add(types.InlineKeyboardButton(" انصراف", callback_data="main_menu"))
+        kb.add(types.InlineKeyboardButton("📈 ارز دیجیتال (دستی)", callback_data="buy_gw:crypto"))
+    kb.add(types.InlineKeyboardButton("❌ انصراف", callback_data="main_menu"))
     try:
         bot.edit_message_text(text, uid, call.message.message_id, reply_markup=kb, parse_mode="HTML")
     except Exception:
